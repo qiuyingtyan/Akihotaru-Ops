@@ -54,6 +54,8 @@ body {
 
 #app { display: flex; min-height: 100vh; }
 
+.app-root { flex: 1; display: flex; min-width: 0; }
+
 /* ── 侧边栏 ─────────────────────────────── */
 .sidebar {
   width: 208px;
@@ -388,6 +390,7 @@ code {
 }
 @media (max-width: 760px) {
   #app { flex-direction: column; }
+  .app-root { flex-direction: column; }
   .sidebar { width: 100%; height: auto; position: static; }
   .grid-4, .grid-3, .grid-2 { grid-template-columns: 1fr; }
 }

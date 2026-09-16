@@ -1,5 +1,5 @@
 <template>
-  <div>
+  <div class="app-root">
     <template v-if="loggedOut === false">
     <aside class="sidebar">
       <div class="logo">(๑>ᴗ<๑) pf3090</div>
