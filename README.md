@@ -4,7 +4,7 @@ Go/Gin + Vue3 单二进制运维面板，部署在 pf3090（10.8.0.2，VPN 内�
 
 ## 访问
 - 地址: http://10.8.0.2:9800
-- 登录: 打开页面输入 Token（当前 `pf3090-ops`，配置在 systemd 单元 `OPSWEB_TOKEN` 环境变量中，改后 `sudo systemctl daemon-reload && sudo systemctl restart opsweb` 即可，无需重新编译）
+- 登录: 打开页面输入账号密码（配置在 systemd 单元 `OPSWEB_USER`/`OPSWEB_PASS` 环境变量中，改后 `sudo systemctl daemon-reload && sudo systemctl restart opsweb` 即可，无需重新编译）；登录后签发随机会话 token（7 天有效），所有 API 走 `Authorization: Bearer` 头
 - 路由: 总览 / 容器 / 项目 / CI/CD / 系统服务 / 日志 / 告警
 
 ## 功能
