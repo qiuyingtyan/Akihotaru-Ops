@@ -1,7 +1,6 @@
 package api
 
 import (
-	"crypto/subtle"
 	"net/http"
 	"strings"
 	"sync"
@@ -12,15 +11,8 @@ import (
 
 const sessionTTL = 7 * 24 * time.Hour
 
-var authUser string
-
-func initAuth(user, pass string) {
-	authUser = user
-}
-
 func checkCredentials(user, pass string) bool {
-	u := subtle.ConstantTimeCompare([]byte(user), []byte(authUser)) == 1
-	return u && dbVerifyUser(user, pass)
+	return dbVerifyUser(user, pass)
 }
 
 // loginGuard implements simple brute-force throttling per IP.

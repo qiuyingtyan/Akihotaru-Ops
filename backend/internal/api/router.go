@@ -55,15 +55,13 @@ func actionHandler(kind string, h func(c *gin.Context) (string, error)) gin.Hand
 }
 
 // NewRouter builds the gin engine with auth and all routes.
-func NewRouter(user, pass string) *gin.Engine {
+func NewRouter() *gin.Engine {
 	collect.StartSampler()
 	collect.StartAlertChecker()
 
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
 	r.Use(gin.Logger(), gin.Recovery())
-
-	initAuth(user, pass)
 
 	// session auth via Authorization header (sessions stored in pgsql)
 	apiGroup := r.Group("/api")

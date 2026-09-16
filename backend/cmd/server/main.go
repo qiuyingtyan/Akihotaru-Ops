@@ -50,7 +50,7 @@ func main() {
 
 	web.Init()
 	api.Version = version + " (built " + buildTime + ")"
-	r := api.NewRouter(u, p)
+	r := api.NewRouter()
 	log.Printf("opsweb %s listening on %s", version, *addr)
 	if err := r.Run(*addr); err != nil {
 		log.Fatal(err)
