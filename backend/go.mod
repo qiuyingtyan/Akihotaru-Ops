@@ -4,7 +4,7 @@ go 1.26.0
 
 require (
 	github.com/gin-gonic/gin v1.11.0
-	github.com/jackc/pgx/v5 v5.11.0
+	github.com/jackc/pgx/v5 v5.7.5
 	golang.org/x/crypto v0.57.0
 )
 
