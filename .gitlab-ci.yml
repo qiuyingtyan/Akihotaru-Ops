@@ -1,0 +1,87 @@
+# pf3090 服务器运维面板 CI/CD
+# 流程: 前端构建 -> 后端交叉编译 -> 通过宿主机 SSH 原子部署 + systemd 重启 -> 健康检查
+# 依赖: baq-gitlab-runner (docker executor, network_mode=host, 挂载 docker.sock)
+#       宿主机 pf3090@192.168.1.19 免密 SSH 已配置
+
+stages:
+  - build
+  - deploy
+  - verify
+
+variables:
+  GOPROXY: "https://goproxy.cn,direct"
+  NPM_CONFIG_REGISTRY: "https://registry.npmmirror.com"
+  DEPLOY_HOST: "pf3090@192.168.1.19"
+  APP_DIR: "/workspace/opsweb"
+
+build-frontend:
+  stage: build
+  image: node:18-bullseye
+  cache:
+    key: opsweb-npm
+    paths:
+      - .npm/
+  script:
+    - cd frontend
+    - npm ci --cache .npm --prefer-offline || npm install --cache .npm --prefer-offline
+    - npm run build
+  artifacts:
+    paths:
+      - backend/internal/web/dist/
+    expire_in: 1 hour
+
+build-backend:
+  stage: build
+  image: golang:1.24-alpine
+  cache:
+    key: opsweb-go
+    paths:
+      - .gomod/
+  script:
+    - apk add --no-cache git curl >/dev/null
+    - cd backend
+    - GOMODCACHE="$CI_PROJECT_DIR/.gomod" go mod download
+    - |
+      GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build \
+        -ldflags "-s -w -X main.version=${CI_COMMIT_SHORT_SHA} -X main.buildTime=$(date +%Y-%m-%d_%H:%M)" \
+        -o "$CI_PROJECT_DIR/opsweb-linux-amd64" ./cmd/server
+  artifacts:
+    paths:
+      - opsweb-linux-amd64
+    expire_in: 1 hour
+
+deploy:
+  stage: deploy
+  image: alpine:3.20
+  script:
+    - apk add --no-cache openssh-client >/dev/null
+    - chmod 600 opsweb-linux-amd64
+    - scp -o StrictHostKeyChecking=no opsweb-linux-amd64 "$DEPLOY_HOST:/tmp/opsweb-ci-$CI_PIPELINE_ID"
+    - |
+      ssh -o StrictHostKeyChecking=no "$DEPLOY_HOST" bash -s <<EOF
+      set -e
+      sudo -n systemctl stop opsweb || true
+      cp /tmp/opsweb-ci-$CI_PIPELINE_ID $APP_DIR/opsweb
+      chmod +x $APP_DIR/opsweb
+      rm -f /tmp/opsweb-ci-$CI_PIPELINE_ID
+      sudo -n systemctl start opsweb
+      sleep 2
+      systemctl is-active opsweb
+      EOF
+
+verify:
+  stage: verify
+  image: alpine:3.20
+  script:
+    - apk add --no-cache curl >/dev/null
+    - |
+      VERSION=$(curl -s --max-time 10 -H "Authorization: Bearer $OPSWEB_TOKEN" http://192.168.1.19:9800/api/version)
+      echo "deployed: $VERSION"
+      echo "$VERSION" | grep -q "version"
+    - |
+      for i in 1 2 3; do
+        CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 http://192.168.1.19:9800/)
+        [ "$CODE" = "200" ] && echo "SPA OK: $CODE" && exit 0
+        sleep 3
+      done
+      echo "SPA check failed" && exit 1
