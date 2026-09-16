@@ -74,11 +74,13 @@ func NewRouter(user, pass string) *gin.Engine {
 		}
 		auth := c.GetHeader("Authorization")
 		t := strings.TrimPrefix(auth, "Bearer ")
-		if t == "" || !dbValidSession(t) {
+		user, ok := dbSessionUser(t)
+		if !ok {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 			c.Abort()
 			return
 		}
+		c.Set("username", user)
 		c.Next()
 	})
 

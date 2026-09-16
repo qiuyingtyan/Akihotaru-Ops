@@ -213,6 +213,19 @@ func dbValidSession(tok string) bool {
 	return n > 0
 }
 
+// dbSessionUser returns the username owning a valid session token.
+func dbSessionUser(tok string) (string, bool) {
+	if tok == "" {
+		return "", false
+	}
+	var un string
+	if err := db.QueryRow(
+		`SELECT username FROM ops_sessions WHERE token = $1 AND expires_at > now()`, tok).Scan(&un); err != nil {
+		return "", false
+	}
+	return un, true
+}
+
 func dbDropSession(tok string) {
 	if tok != "" {
 		db.Exec(`DELETE FROM ops_sessions WHERE token = $1`, tok)

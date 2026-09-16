@@ -121,17 +121,18 @@ func changePassHandler(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 1, "error": "参数错误"})
 		return
 	}
-	if err := dbChangePassword(c.GetString("username"), req.OldPassword, req.NewPassword); err != nil {
-		auditLog(c, "auth/change-pass", c.GetString("username"), "FAIL")
+	user := c.MustGet("username").(string)
+	if err := dbChangePassword(user, req.OldPassword, req.NewPassword); err != nil {
+		auditLog(c, "auth/change-pass", user, "FAIL")
 		c.JSON(http.StatusBadRequest, gin.H{"code": 1, "error": err.Error()})
 		return
 	}
-	auditLog(c, "auth/change-pass", c.GetString("username"), "OK")
+	auditLog(c, "auth/change-pass", user, "OK")
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": "ok"})
 }
 
 func adminOnly(c *gin.Context) {
-	if c.GetString("username") != "admin" {
+	if c.MustGet("username").(string) != "admin" {
 		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"code": 1, "error": "仅管理员可操作"})
 		return
 	}
