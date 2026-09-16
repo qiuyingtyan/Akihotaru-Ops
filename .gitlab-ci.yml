@@ -45,6 +45,7 @@ build-backend:
     - apk add --no-cache git curl >/dev/null
     - cd backend
     - GOMODCACHE="$CI_PROJECT_DIR/.gomod" go mod download
+    - GOMODCACHE="$CI_PROJECT_DIR/.gomod" CGO_ENABLED=0 go test ./...
     - |
       GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build \
         -ldflags "-s -w -X main.version=${CI_COMMIT_SHORT_SHA} -X main.buildTime=$(date +%Y-%m-%d_%H:%M)" \
