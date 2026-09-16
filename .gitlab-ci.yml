@@ -4,7 +4,9 @@
 #       宿主机 pf3090@192.168.1.19 免密 SSH 已配置
 # GitLab CI 变量:
 #   OPSWEB_TOKEN    - 访问面板 API 的 Token (masked, 用于 verify 阶段健康检查)
-#   DEPLOY_SSH_KEY  - pf3090 宿主机 SSH 私钥 (file 类型, base64 编码, deploy 阶段解码使用)
+#   DEPLOY_SSH_KEY  - pf3090 宿主机 SSH 私钥 (file 类型, base64 编码; 注意:
+#                     GitLab 的 file 变量会去掉末尾换行导致私钥解析失败,
+#                     所以必须存 base64, 且 raw=false 会被转义损坏, 务必 raw=true)
 
 stages:
   - build
