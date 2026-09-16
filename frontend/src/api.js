@@ -1,12 +1,6 @@
 const TOKEN_KEY = 'opsweb_token'
 
 export function getToken() {
-  const q = new URLSearchParams(location.search).get('token')
-  if (q) {
-    sessionStorage.setItem(TOKEN_KEY, q)
-    history.replaceState(null, '', location.pathname)
-    return q
-  }
   return sessionStorage.getItem(TOKEN_KEY)
 }
 
@@ -18,30 +12,28 @@ export function clearToken() {
   sessionStorage.removeItem(TOKEN_KEY)
 }
 
+let redirecting = false
+
 export async function api(path, opts = {}) {
-  const res = await fetch('/api' + path, {
-    ...opts,
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: 'Bearer ' + getToken()
-    }
-  })
+  const headers = { 'Content-Type': 'application/json' }
+  if (!opts.noAuth) {
+    headers.Authorization = 'Bearer ' + getToken()
+  }
+  const res = await fetch('/api' + path, { ...opts, headers })
   const body = await res.json().catch(() => ({}))
   if (res.status === 401) {
     clearToken()
-    if (location.pathname !== '/login' && !redirecting) {
+    if (!opts.noAuth && location.pathname !== '/login' && !redirecting) {
       redirecting = true
       location.replace('/login')
     }
-    throw new Error('未登录或 token 已失效')
+    throw new Error(opts.noAuth ? (body.error || '登录失败') : '未登录或会话已过期')
   }
   if (!res.ok || body.code !== 0) {
     throw new Error(body.error || `HTTP ${res.status}`)
   }
   return body.data
 }
-
-let redirecting = false
 
 export function fmtBytes(n) {
   if (n == null) return '-'

@@ -49,7 +49,9 @@ const menus = [
 
 function logout() {
   clearToken()
+  api('/logout', { method: 'POST' }).catch(() => {})
   router.push('/login')
+  loggedOut.value = true
 }
 
 onMounted(async () => {

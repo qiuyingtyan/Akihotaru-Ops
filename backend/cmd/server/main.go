@@ -17,7 +17,8 @@ var (
 
 func main() {
 	addr := flag.String("addr", ":9800", "listen address")
-	token := flag.String("token", "", "API access token (or env OPSWEB_TOKEN)")
+	user := flag.String("user", "", "login username (or env OPSWEB_USER)")
+	pass := flag.String("pass", "", "login password (or env OPSWEB_PASS)")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
 
@@ -26,17 +27,21 @@ func main() {
 		os.Exit(0)
 	}
 
-	t := *token
-	if t == "" {
-		t = os.Getenv("OPSWEB_TOKEN")
+	u := *user
+	if u == "" {
+		u = os.Getenv("OPSWEB_USER")
 	}
-	if t == "" {
-		log.Fatal("token required: -token flag or OPSWEB_TOKEN env")
+	p := *pass
+	if p == "" {
+		p = os.Getenv("OPSWEB_PASS")
+	}
+	if u == "" || p == "" {
+		log.Fatal("credentials required: -user/-pass flags or OPSWEB_USER/OPSWEB_PASS env")
 	}
 
 	web.Init()
 	api.Version = version + " (built " + buildTime + ")"
-	r := api.NewRouter(t)
+	r := api.NewRouter(u, p)
 	log.Printf("opsweb %s listening on %s", version, *addr)
 	if err := r.Run(*addr); err != nil {
 		log.Fatal(err)

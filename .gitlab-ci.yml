@@ -3,10 +3,9 @@
 # 依赖: baq-gitlab-runner (docker executor, network_mode=host, 挂载 docker.sock)
 #       宿主机 pf3090@192.168.1.19 免密 SSH 已配置
 # GitLab CI 变量:
-#   OPSWEB_TOKEN    - 访问面板 API 的 Token (masked, 用于 verify 阶段健康检查)
-#   DEPLOY_SSH_KEY  - pf3090 宿主机 SSH 私钥 (file 类型, base64 编码; 注意:
-#                     GitLab 的 file 变量会去掉末尾换行导致私钥解析失败,
-#                     所以必须存 base64, 且 raw=false 会被转义损坏, 务必 raw=true)
+#   OPSWEB_USER - 面板登录用户名 (deploy 阶段写入 systemd 环境)
+#   OPSWEB_PASS - 面板登录密码 (masked)
+#   VERIFY_USER / VERIFY_PASS - verify 阶段登录拿会话 token 用
 
 stages:
   - build
@@ -79,9 +78,13 @@ verify:
   stage: verify
   image: alpine:3.20
   script:
-    - apk add --no-cache curl >/dev/null
+    - apk add --no-cache curl jq >/dev/null
     - |
-      VERSION=$(curl -s --max-time 10 -H "Authorization: Bearer $OPSWEB_TOKEN" http://192.168.1.19:9800/api/version)
+      TOKEN=$(curl -s --max-time 10 -X POST http://192.168.1.19:9800/api/login \
+        -H 'Content-Type: application/json' \
+        -d "{\"username\":\"$VERIFY_USER\",\"password\":\"$VERIFY_PASS\"}" | jq -r '.data.token // empty')
+      [ -n "$TOKEN" ] || { echo 'login failed'; exit 1; }
+      VERSION=$(curl -s --max-time 10 -H "Authorization: Bearer $TOKEN" http://192.168.1.19:9800/api/version)
       echo "deployed: $VERSION"
       echo "$VERSION" | grep -q "version"
     - |

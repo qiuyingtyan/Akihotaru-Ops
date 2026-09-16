@@ -15,7 +15,12 @@ import (
 	"opsweb/internal/web"
 )
 
+// Version is injected via ldflags at build time.
 var Version = "dev"
+
+// SessionToken is the credential issued by /api/login and accepted
+// in place of a static token for all API calls.
+var SessionToken = ""
 
 var auditMu sync.Mutex
 
@@ -50,7 +55,7 @@ func actionHandler(kind string, h func(c *gin.Context) (string, error)) gin.Hand
 }
 
 // NewRouter builds the gin engine with auth and all routes.
-func NewRouter(token string) *gin.Engine {
+func NewRouter(user, pass string) *gin.Engine {
 	collect.StartSampler()
 	collect.StartAlertChecker()
 
@@ -58,7 +63,9 @@ func NewRouter(token string) *gin.Engine {
 	r := gin.New()
 	r.Use(gin.Logger(), gin.Recovery())
 
-	// token auth via Authorization header only
+	initAuth(user, pass)
+
+	// session auth via Authorization header
 	apiGroup := r.Group("/api")
 	apiGroup.Use(func(c *gin.Context) {
 		if c.Request.Method == http.MethodOptions {
@@ -67,7 +74,7 @@ func NewRouter(token string) *gin.Engine {
 		}
 		auth := c.GetHeader("Authorization")
 		t := strings.TrimPrefix(auth, "Bearer ")
-		if t == "" || t != token {
+		if t == "" || !validSession(t) {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 			c.Abort()
 			return
@@ -75,7 +82,11 @@ func NewRouter(token string) *gin.Engine {
 		c.Next()
 	})
 
+	// login is the only unauthenticated endpoint
+	r.POST("/api/login", loginHandler)
+
 	apiGroup.GET("/ping", func(c *gin.Context) { c.JSON(200, gin.H{"msg": "pong"}) })
+	apiGroup.POST("/logout", logoutHandler)
 	apiGroup.GET("/version", func(c *gin.Context) {
 		c.JSON(200, gin.H{"code": 0, "data": gin.H{"version": Version}})
 	})

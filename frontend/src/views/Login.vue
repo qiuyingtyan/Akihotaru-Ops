@@ -5,7 +5,8 @@
       <h2>pf3090 运维小屋</h2>
       <div class="login-sub">欢迎回来～今天服务器也很乖哦 ♡</div>
       <div v-if="err" class="login-err">(｡•́︿•̀｡) {{ err }}</div>
-      <input v-model="token" type="password" placeholder="请输入访问 Token ♪" @keyup.enter="login" />
+      <input v-model="username" type="text" placeholder="用户名 ♪" autocomplete="username" @keyup.enter="login" />
+      <input v-model="password" type="password" placeholder="密码 ♪" autocomplete="current-password" @keyup.enter="login" />
       <button class="btn primary" @click="login" :disabled="loading">{{ loading ? '验证中...' : '进入小屋 ♡' }}</button>
     </div>
   </div>
@@ -13,24 +14,27 @@
 
 <script setup>
 import { ref } from 'vue'
-import { api, setToken, getToken } from '../api.js'
+import { api, setToken } from '../api.js'
 
-const token = ref(getToken() || '')
+const username = ref('')
+const password = ref('')
 const err = ref('')
 const loading = ref(false)
 
 async function login() {
-  if (!token.value) return
+  if (!username.value || !password.value) return
   loading.value = true
   err.value = ''
-  const saved = sessionStorage.getItem('opsweb_token')
-  setToken(token.value)
   try {
-    await api('/ping')
+    const r = await api('/login', {
+      method: 'POST',
+      body: JSON.stringify({ username: username.value, password: password.value }),
+      noAuth: true
+    })
+    setToken(r.token)
     location.replace('/')
   } catch (e) {
-    sessionStorage.setItem('opsweb_token', saved || '')
-    err.value = 'Token 无效：' + e.message
+    err.value = e.message
     loading.value = false
   }
 }
