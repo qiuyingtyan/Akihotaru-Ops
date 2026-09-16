@@ -29,7 +29,10 @@ export async function api(path, opts = {}) {
   const body = await res.json().catch(() => ({}))
   if (res.status === 401) {
     clearToken()
-    location.reload()
+    if (location.pathname !== '/login' && !redirecting) {
+      redirecting = true
+      location.replace('/login')
+    }
     throw new Error('未登录或 token 已失效')
   }
   if (!res.ok || body.code !== 0) {
@@ -37,6 +40,8 @@ export async function api(path, opts = {}) {
   }
   return body.data
 }
+
+let redirecting = false
 
 export function fmtBytes(n) {
   if (n == null) return '-'

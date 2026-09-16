@@ -13,10 +13,8 @@
 
 <script setup>
 import { ref } from 'vue'
-import { useRouter } from 'vue-router'
 import { api, setToken, getToken } from '../api.js'
 
-const router = useRouter()
 const token = ref(getToken() || '')
 const err = ref('')
 const loading = ref(false)
@@ -29,7 +27,7 @@ async function login() {
   setToken(token.value)
   try {
     await api('/ping')
-    router.go(0)
+    location.replace('/')
   } catch (e) {
     sessionStorage.setItem('opsweb_token', saved || '')
     err.value = 'Token 无效：' + e.message

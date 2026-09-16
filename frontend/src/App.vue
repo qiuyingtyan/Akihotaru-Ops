@@ -1,5 +1,6 @@
 <template>
   <div>
+    <template v-if="loggedOut === false">
     <aside class="sidebar">
       <div class="logo">(๑>ᴗ<๑) pf3090</div>
       <router-link v-for="m in menus" :key="m.to" :to="m.to">
@@ -16,17 +17,25 @@
       </div>
       <router-view />
     </main>
+    </template>
+    <router-view v-else />
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
-import { api, clearToken } from './api.js'
+import { ref, computed, onMounted, watch } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
+import { api, clearToken, getToken } from './api.js'
 
 const router = useRouter()
+const route = useRoute()
 const version = ref('')
 const alertsCnt = ref(0)
+const loggedOut = ref(!getToken())
+
+watch(() => route.path, (p) => {
+  loggedOut.value = !getToken() || p === '/login'
+})
 
 const menus = [
   { to: '/', label: '总览', icon: '🌸', on: '🌷' },
@@ -40,20 +49,21 @@ const menus = [
 
 function logout() {
   clearToken()
-  router.go(0)
+  router.push('/login')
 }
 
 onMounted(async () => {
+  if (!getToken()) return
   try {
     const v = await api('/version')
     version.value = 'v' + v.version
     const a = await api('/alerts')
     alertsCnt.value = a.active.length
     setInterval(async () => {
-      if (!document.hidden) {
+      if (!document.hidden && getToken()) {
         try { alertsCnt.value = (await api('/alerts')).active.length } catch { /* ignore */ }
       }
     }, 30000)
-  } catch { /* router guard handles */ }
+  } catch { /* not logged in */ }
 })
 </script>
