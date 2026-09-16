@@ -1,10 +1,10 @@
 <template>
   <div>
-    <h2 class="page-title">告警</h2>
+    <h2 class="page-title">告警 ♪</h2>
     <div class="grid grid-2">
       <div class="card">
         <div class="stat-label">活跃告警（{{ active.length }}）</div>
-        <div v-if="!active.length" class="muted mt">✅ 当前无活跃告警</div>
+        <div v-if="!active.length" class="muted mt">✧ 当前无活跃告警，服务器很乖哦～</div>
         <table v-else class="mt">
           <thead><tr><th>时间</th><th>级别</th><th>指标</th><th>当前值</th></tr></thead>
           <tbody>

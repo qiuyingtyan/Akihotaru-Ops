@@ -1,7 +1,7 @@
 <template>
   <div>
-    <h2 class="page-title">系统服务</h2>
-    <div v-if="err" class="error-msg">{{ err }}</div>
+    <h2 class="page-title">系统服务 ♪</h2>
+    <div v-if="err" class="error-msg">(｡•́︿•̀｡) {{ err }}</div>
     <div v-else class="card">
       <table>
         <thead><tr><th>服务</th><th>描述</th><th>状态</th><th>操作</th></tr></thead>
@@ -14,7 +14,7 @@
             </td>
             <td>
               <button class="btn" @click="act(sv,'restart')" :disabled="busy===sv.name">重启</button>
-              <button class="btn" @click="act(sv,'stop')" v-if="sv.active==='active'" :disabled="busy===sv.name">停止</button>
+              <button class="btn danger" @click="act(sv,'stop')" v-if="sv.active==='active'" :disabled="busy===sv.name">停止</button>
               <button class="btn" @click="act(sv,'start')" v-else :disabled="busy===sv.name">启动</button>
             </td>
           </tr>

@@ -1,11 +1,11 @@
 <template>
   <div>
-    <h2 class="page-title">日志查看</h2>
+    <h2 class="page-title">日志查看 ♪</h2>
     <div class="card">
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-        <input v-model="path" placeholder="/workspace/baq-test/logs/..." style="flex:1;background:var(--panel2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:6px 10px;font-family:monospace" @keyup.enter="loadFile" />
-        <input v-model.number="tail" style="width:70px;background:var(--panel2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:6px 10px" title="行数" />
-        <button class="btn" @click="loadFile">查看</button>
+        <input v-model="path" placeholder="/workspace/baq-test/logs/..." style="flex:1;background:var(--panel2);border:1.5px solid var(--border);color:var(--text);border-radius:12px;padding:7px 12px;font-family:monospace" @keyup.enter="loadFile" />
+        <input v-model.number="tail" style="width:70px;background:var(--panel2);border:1.5px solid var(--border);color:var(--text);border-radius:12px;padding:7px 12px" title="行数" />
+        <button class="btn primary" @click="loadFile">查看</button>
       </div>
       <div class="muted mt" style="font-size:12px">
         允许目录: /workspace/baq-test/logs, /workspace/szx-test/logs, /workspace/baq-test/.deploy, /var/log

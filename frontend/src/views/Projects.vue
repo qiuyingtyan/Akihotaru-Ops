@@ -1,7 +1,7 @@
 <template>
   <div>
-    <h2 class="page-title">项目状态</h2>
-    <div v-if="err" class="error-msg">{{ err }}</div>
+    <h2 class="page-title">项目状态 ♪</h2>
+    <div v-if="err" class="error-msg">(｡•́︿•̀｡) {{ err }}</div>
     <div v-else class="grid grid-2">
       <div class="card" v-for="p in list" :key="p.name">
         <div style="display:flex;justify-content:space-between;align-items:center">
@@ -17,8 +17,8 @@
           </div>
         </div>
         <div class="mt" style="display:flex;gap:8px">
-          <button class="btn" @click="deploy(p)" :disabled="deploying===p.name">
-            {{ deploying===p.name ? '部署中...' : '🚀 重新部署' }}
+          <button class="btn primary" @click="deploy(p)" :disabled="deploying===p.name">
+            {{ deploying===p.name ? '部署中...' : '✨ 重新部署' }}
           </button>
           <button class="btn" @click="showDeployStatus(p)">部署输出</button>
         </div>

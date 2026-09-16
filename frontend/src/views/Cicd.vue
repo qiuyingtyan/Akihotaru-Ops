@@ -1,7 +1,7 @@
 <template>
   <div>
-    <h2 class="page-title">CI/CD 状态</h2>
-    <div v-if="err" class="error-msg">{{ err }}</div>
+    <h2 class="page-title">CI/CD 状态 ♪</h2>
+    <div v-if="err" class="error-msg">(｡•́︿•̀｡) {{ err }}</div>
     <template v-else-if="s">
       <div class="grid grid-3">
         <div class="card">
@@ -51,28 +51,28 @@
               <tr v-for="j in pipelines" :key="j.jobId">
                 <td>#{{ j.jobId }}</td>
                 <td>{{ j.project }}</td>
-                <td><span class="badge" :class="j.status==='success' ? 'green' : 'red'">{{ j.status === 'success' ? '✅ 成功' : '❌ 失败' }}</span></td>
+                <td><span class="badge" :class="j.status==='success' ? 'green' : 'red'">{{ j.status === 'success' ? '✧ 成功' : '× 失败' }}</span></td>
                 <td>{{ j.duration || '-' }}</td>
                 <td class="muted">{{ j.finishedAt || '-' }}</td>
               </tr>
             </tbody>
           </table>
         </div>
-        <div v-else class="muted mt">暂无构建记录</div>
+        <div v-else class="muted mt loading-tip">(っ˘ω˘ς) 暂无构建记录</div>
       </div>
 
       <div class="card mt">
         <div style="display:flex;justify-content:space-between;align-items:center">
           <div class="stat-label">Runner 日志（最近 {{ tailN }} 行）</div>
           <span>
-            <input v-model.number="tailN" style="width:60px;background:var(--panel2);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:3px 6px" />
+            <input v-model.number="tailN" style="width:60px;background:var(--panel2);border:1.5px solid var(--border);color:var(--text);border-radius:10px;padding:4px 8px" />
             <button class="btn" @click="loadRunnerLogs">刷新</button>
           </span>
         </div>
         <pre class="log mt">{{ runnerLogs || '（暂无）' }}</pre>
       </div>
     </template>
-    <div v-else class="muted">加载中...</div>
+    <div v-else class="muted loading-tip">(๑•̀ㅂ•́)و✧ 加载中...</div>
   </div>
 </template>
 

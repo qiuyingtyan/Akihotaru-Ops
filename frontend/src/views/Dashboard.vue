@@ -1,7 +1,7 @@
 <template>
   <div>
-    <h2 class="page-title">服务器总览</h2>
-    <div v-if="err" class="error-msg">{{ err }}</div>
+    <h2 class="page-title">服务器总览 ♪</h2>
+    <div v-if="err" class="error-msg">(｡•́︿•̀｡) {{ err }}</div>
     <template v-else-if="o">
       <div class="grid grid-4">
         <div class="card">
@@ -63,7 +63,7 @@
       <div class="card mt">
         <div style="display:flex;justify-content:space-between;align-items:center">
           <div class="stat-label">CPU / 内存 采样曲线（每分钟，重启不丢失）</div>
-          <select v-model.number="days" @change="changeDays" style="background:var(--panel2);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:4px 8px">
+          <select v-model.number="days" @change="changeDays" style="background:#fff;border:1.5px solid var(--border);color:var(--text);border-radius:10px;padding:5px 10px">
             <option :value="1">最近 24 小时</option>
             <option :value="3">最近 3 天</option>
             <option :value="7">最近 7 天</option>
@@ -72,12 +72,12 @@
         </div>
         <div v-if="hist.cpu.length" class="mt">
           <svg viewBox="0 0 800 180" style="width:100%;height:180px">
-            <polyline :points="histPath(hist.cpu)" fill="none" stroke="#3aa2f0" stroke-width="2" />
-            <polyline :points="histPath(hist.mem)" fill="none" stroke="#34c979" stroke-width="2" />
+            <polyline :points="histPath(hist.cpu)" fill="none" stroke="#ff7eb6" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
+            <polyline :points="histPath(hist.mem)" fill="none" stroke="#b794f6" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
           </svg>
-          <div class="muted">🔵 CPU%　🟢 内存%</div>
+          <div class="muted">🌸 CPU%　💜 内存%</div>
         </div>
-        <div v-else class="muted mt">采样数据累积中，稍后刷新可见曲线</div>
+        <div v-else class="muted mt loading-tip">(っ˘ω˘ς) 采样数据累积中，稍后刷新就有曲线啦～</div>
       </div>
 
       <div class="card mt">
@@ -89,7 +89,7 @@
         </div>
       </div>
     </template>
-    <div v-else class="muted">加载中...</div>
+    <div v-else class="muted loading-tip">(๑•̀ㅂ•́)و✧ 拼命加载中...</div>
   </div>
 </template>
 

@@ -1,7 +1,7 @@
 <template>
   <div>
-    <h2 class="page-title">Docker 容器</h2>
-    <div v-if="err" class="error-msg">{{ err }}</div>
+    <h2 class="page-title">Docker 容器 ♪</h2>
+    <div v-if="err" class="error-msg">(｡•́︿•̀｡) {{ err }}</div>
     <div v-else class="card">
       <table>
         <thead>
@@ -15,7 +15,7 @@
             <td class="muted">{{ (c.ports||[]).join(', ') || '-' }}</td>
             <td>
               <button class="btn" @click="act(c, 'restart')" :disabled="busy===c.name">重启</button>
-              <button class="btn" @click="act(c, 'stop')" v-if="c.state==='running'" :disabled="busy===c.name">停止</button>
+              <button class="btn danger" @click="act(c, 'stop')" v-if="c.state==='running'" :disabled="busy===c.name">停止</button>
               <button class="btn" @click="act(c, 'start')" v-else :disabled="busy===c.name">启动</button>
               <button class="btn" @click="showLogs(c)">日志</button>
             </td>
@@ -32,7 +32,7 @@
           <button class="btn" @click="logBox=null">关闭</button>
         </span>
       </div>
-      <pre class="log mt">{{ logBox.text || '（无日志）' }}</pre>
+      <pre class="log mt">{{ logBox.text || '（无日志）(๑´ㅂ`๑) 安安静静' }}</pre>
     </div>
   </div>
 </template>
