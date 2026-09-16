@@ -45,6 +45,7 @@ const menus = [
   { to: '/services', label: '系统服务', icon: '🖥️', on: '💫' },
   { to: '/logs', label: '日志', icon: '📄', on: '📝' },
   { to: '/alerts', label: '告警', icon: '🔔', on: '🚨' },
+  { to: '/users', label: '账号', icon: '👤', on: '👑' },
 ]
 
 function logout() {

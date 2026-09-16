@@ -9,6 +9,7 @@ import Cicd from './views/Cicd.vue'
 import Services from './views/Services.vue'
 import Logs from './views/Logs.vue'
 import Alerts from './views/Alerts.vue'
+import Users from './views/Users.vue'
 import Login from './views/Login.vue'
 import './style.css'
 
@@ -22,6 +23,7 @@ const router = createRouter({
     { path: '/services', component: Services },
     { path: '/logs', component: Logs },
     { path: '/alerts', component: Alerts },
+    { path: '/users', component: Users },
     { path: '/login', component: Login }
   ]
 })

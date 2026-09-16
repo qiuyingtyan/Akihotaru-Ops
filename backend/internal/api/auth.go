@@ -1,9 +1,7 @@
 package api
 
 import (
-	"crypto/rand"
 	"crypto/subtle"
-	"encoding/hex"
 	"net/http"
 	"strings"
 	"sync"
@@ -14,13 +12,19 @@ import (
 
 const sessionTTL = 7 * 24 * time.Hour
 
+var authUser string
+
+func initAuth(user, pass string) {
+	authUser = user
+}
+
+func checkCredentials(user, pass string) bool {
+	u := subtle.ConstantTimeCompare([]byte(user), []byte(authUser)) == 1
+	return u && dbVerifyUser(user, pass)
+}
+
+// loginGuard implements simple brute-force throttling per IP.
 var (
-	authUser string
-	authPass string
-
-	sessMu   sync.Mutex
-	sessions = map[string]time.Time{}
-
 	failMu   sync.Mutex
 	failCnts = map[string]*failState{}
 )
@@ -31,52 +35,6 @@ type failState struct {
 	windowS  time.Time
 }
 
-func initAuth(user, pass string) {
-	authUser, authPass = user, pass
-}
-
-func newSession() (string, error) {
-	b := make([]byte, 32)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-	t := hex.EncodeToString(b)
-	sessMu.Lock()
-	sessions[t] = time.Now().Add(sessionTTL)
-	sessMu.Unlock()
-	return t, nil
-}
-
-func validSession(t string) bool {
-	if t == "" {
-		return false
-	}
-	sessMu.Lock()
-	defer sessMu.Unlock()
-	exp, ok := sessions[t]
-	if !ok {
-		return false
-	}
-	if time.Now().After(exp) {
-		delete(sessions, t)
-		return false
-	}
-	return true
-}
-
-func dropSession(t string) {
-	sessMu.Lock()
-	delete(sessions, t)
-	sessMu.Unlock()
-}
-
-func checkCredentials(user, pass string) bool {
-	u := subtle.ConstantTimeCompare([]byte(user), []byte(authUser)) == 1
-	p := subtle.ConstantTimeCompare([]byte(pass), []byte(authPass)) == 1
-	return u && p
-}
-
-// loginGuard implements simple brute-force throttling per IP.
 func loginGuard(ip string) bool {
 	failMu.Lock()
 	defer failMu.Unlock()
@@ -137,7 +95,7 @@ func loginHandler(c *gin.Context) {
 	delete(failCnts, ip)
 	failMu.Unlock()
 
-	tok, err := newSession()
+	tok, _, err := dbNewSession(req.Username)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 1, "error": "会话创建失败"})
 		return
@@ -148,6 +106,96 @@ func loginHandler(c *gin.Context) {
 
 func logoutHandler(c *gin.Context) {
 	t := strings.TrimPrefix(c.GetHeader("Authorization"), "Bearer ")
-	dropSession(t)
+	dbDropSession(t)
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": "ok"})
+}
+
+// ── user management (admin only, stored in pgsql) ──────────────────
+
+func changePassHandler(c *gin.Context) {
+	var req struct {
+		OldPassword string `json:"oldPassword"`
+		NewPassword string `json:"newPassword"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 1, "error": "参数错误"})
+		return
+	}
+	if err := dbChangePassword(c.GetString("username"), req.OldPassword, req.NewPassword); err != nil {
+		auditLog(c, "auth/change-pass", c.GetString("username"), "FAIL")
+		c.JSON(http.StatusBadRequest, gin.H{"code": 1, "error": err.Error()})
+		return
+	}
+	auditLog(c, "auth/change-pass", c.GetString("username"), "OK")
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": "ok"})
+}
+
+func adminOnly(c *gin.Context) {
+	if c.GetString("username") != "admin" {
+		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"code": 1, "error": "仅管理员可操作"})
+		return
+	}
+	c.Next()
+}
+
+func usersListHandler(c *gin.Context) {
+	users, err := dbListUsers()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 1, "error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": users})
+}
+
+func userCreateHandler(c *gin.Context) {
+	var req struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.Username) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 1, "error": "参数错误"})
+		return
+	}
+	if err := dbCreateUser(req.Username, req.Password, "admin"); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 1, "error": err.Error()})
+		return
+	}
+	auditLog(c, "user/create", req.Username, "OK")
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": "ok"})
+}
+
+func userDeleteHandler(c *gin.Context) {
+	name := c.Param("name")
+	if err := dbDeleteUser(name); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 1, "error": err.Error()})
+		return
+	}
+	auditLog(c, "user/delete", name, "OK")
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": "ok"})
+}
+
+func userResetPassHandler(c *gin.Context) {
+	var req struct {
+		Password string `json:"password"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 1, "error": "参数错误"})
+		return
+	}
+	name := c.Param("name")
+	if err := dbUpdatePassword(name, req.Password); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 1, "error": err.Error()})
+		return
+	}
+	auditLog(c, "user/reset-pass", name, "OK")
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": "ok"})
+}
+
+func auditListHandler(c *gin.Context) {
+	items, err := dbRecentAudit(200)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 1, "error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": items})
 }

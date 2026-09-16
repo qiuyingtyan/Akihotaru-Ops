@@ -24,20 +24,20 @@ var SessionToken = ""
 
 var auditMu sync.Mutex
 
-// auditLog appends an operation record to a local audit file.
+// auditLog appends an operation record to local file and pgsql.
 func auditLog(c *gin.Context, target, action, result string) {
 	auditMu.Lock()
 	defer auditMu.Unlock()
-	f, err := os.OpenFile("/workspace/opsweb/audit.log", os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
-	if err != nil {
-		return
+	if f, err := os.OpenFile("/workspace/opsweb/audit.log", os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600); err == nil {
+		fmt.Fprintf(f, "%s ip=%s %s %s result=%s\n",
+			time.Now().Format("2006-01-02 15:04:05"),
+			c.ClientIP(), target, action, result)
+		f.Close()
 	}
-	defer f.Close()
-	line := fmt.Sprintf("%s ip=%s %s %s result=%s\n",
-		time.Now().Format("2006-01-02 15:04:05"),
-		c.ClientIP(), target, action, result)
-	f.WriteString(line)
 	log.Printf("AUDIT ip=%s %s %s result=%s", c.ClientIP(), target, action, result)
+	if db != nil {
+		dbAuditLog(c.ClientIP(), target, action, result)
+	}
 }
 
 // actionHandler wraps a mutating operation with audit logging.
@@ -65,7 +65,7 @@ func NewRouter(user, pass string) *gin.Engine {
 
 	initAuth(user, pass)
 
-	// session auth via Authorization header
+	// session auth via Authorization header (sessions stored in pgsql)
 	apiGroup := r.Group("/api")
 	apiGroup.Use(func(c *gin.Context) {
 		if c.Request.Method == http.MethodOptions {
@@ -74,7 +74,7 @@ func NewRouter(user, pass string) *gin.Engine {
 		}
 		auth := c.GetHeader("Authorization")
 		t := strings.TrimPrefix(auth, "Bearer ")
-		if t == "" || !validSession(t) {
+		if t == "" || !dbValidSession(t) {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 			c.Abort()
 			return
@@ -128,8 +128,19 @@ func NewRouter(user, pass string) *gin.Engine {
 	// process list
 	apiGroup.GET("/processes", collect.ProcessesHandler)
 
-	// generic log tail
+	// generic log tail + journal + directory browser
 	apiGroup.GET("/logs/file", collect.LogFileHandler)
+	apiGroup.GET("/logs/list", collect.LogListHandler)
+	apiGroup.GET("/logs/journal", collect.JournalHandler)
+
+	// account management (pgsql-backed)
+	apiGroup.POST("/account/password", changePassHandler)
+	apiGroup.GET("/audit", auditListHandler)
+	usersGroup := apiGroup.Group("/users", adminOnly)
+	usersGroup.GET("", usersListHandler)
+	usersGroup.POST("", userCreateHandler)
+	usersGroup.DELETE("/:name", userDeleteHandler)
+	usersGroup.POST("/:name/password", userResetPassHandler)
 
 	web.RegisterStatic(r)
 	return r
