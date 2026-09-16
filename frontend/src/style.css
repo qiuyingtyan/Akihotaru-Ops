@@ -129,6 +129,7 @@ body {
 
 /* ── 登录页 ─────────────────────────────── */
 .login-wrap {
+  width: 100%;
   min-height: 100vh;
   display: flex;
   align-items: center;
