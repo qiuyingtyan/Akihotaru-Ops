@@ -1,0 +1,14 @@
+# 构建产物（dist 经 go:embed 打进二进制，但源文件保留随仓库提交以保证可重现构建）
+frontend/node_modules/
+frontend/package-lock.json
+
+# 本地临时/敏感文件
+.local/
+*.local
+opsweb-linux-amd64
+*.exe
+
+# 运行时数据
+*.log
+history.json
+audit.log
