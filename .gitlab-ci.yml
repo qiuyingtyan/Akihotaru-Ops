@@ -2,6 +2,9 @@
 # 流程: 前端构建 -> 后端交叉编译 -> 通过宿主机 SSH 原子部署 + systemd 重启 -> 健康检查
 # 依赖: baq-gitlab-runner (docker executor, network_mode=host, 挂载 docker.sock)
 #       宿主机 pf3090@192.168.1.19 免密 SSH 已配置
+# GitLab CI 变量:
+#   OPSWEB_TOKEN    - 访问面板 API 的 Token (masked, 用于 verify 阶段健康检查)
+#   DEPLOY_SSH_KEY  - pf3090 宿主机 SSH 私钥 (file 类型, base64 编码, deploy 阶段解码使用)
 
 stages:
   - build
