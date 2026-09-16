@@ -4,7 +4,7 @@ Go/Gin + Vue3 单二进制运维面板，部署在 pf3090（10.8.0.2，VPN 内�
 
 ## 访问
 - 地址: http://10.8.0.2:9800
-- 登录: 打开页面输入账号密码（配置在 systemd 单元 `OPSWEB_USER`/`OPSWEB_PASS` 环境变量中，改后 `sudo systemctl daemon-reload && sudo systemctl restart opsweb` 即可，无需重新编译）；登录后签发随机会话 token（7 天有效），所有 API 走 `Authorization: Bearer` 头
+- 登录: 账号密码登录，账号存储在 PostgreSQL（pgsql-baq 容器，127.0.0.1:5433/opsweb 库，ops_users 表 bcrypt 哈希）。首次启动自动建表并播种 admin/123456（取自 `OPSWEB_USER`/`OPSWEB_PASS`，仅表空时生效）。登录后签发随机会话 token（7 天有效，持久化在 ops_sessions 表，服务重启不掉登录态），所有 API 走 `Authorization: Bearer` 头。可在面板「账号」页增删用户/改密，操作审计存 ops_audit 表（保留 90 天）
 - 路由: 总览 / 容器 / 项目 / CI/CD / 系统服务 / 日志 / 告警
 
 ## 功能
