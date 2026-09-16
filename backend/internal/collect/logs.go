@@ -148,11 +148,10 @@ func LogListHandler(c *gin.Context) {
 // resolveLogPath validates and cleans a user-supplied log path against
 // the whitelist. Allows /var/log too.
 func resolveLogPath(p string) (string, error) {
-	abs, err := filepath.Abs(p)
-	if err != nil {
+	if p == "" || !strings.HasPrefix(p, "/") {
 		return "", errInvalidPath
 	}
-	clean := filepath.Clean(abs)
+	clean := filepath.ToSlash(filepath.Clean(p))
 	allowedRoots := append([]string{}, allowedLogRoots...)
 	allowedRoots = append(allowedRoots, "/var/log")
 	for _, root := range allowedRoots {

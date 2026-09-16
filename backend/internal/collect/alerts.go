@@ -46,12 +46,15 @@ type alertsState struct {
 	recent   []AlertEvent
 	webhook  string
 	interval time.Duration
+	// webhook cooldown: metric -> last notify time
+	lastNotify map[string]time.Time
 }
 
 var alerts = alertsState{
-	active:   map[string]AlertEvent{},
-	webhook:  os.Getenv("OPSWEB_WEBHOOK"),
-	interval: 30 * time.Second,
+	active:     map[string]AlertEvent{},
+	webhook:    os.Getenv("OPSWEB_WEBHOOK"),
+	interval:   30 * time.Second,
+	lastNotify: map[string]time.Time{},
 }
 
 // StartAlertChecker evaluates rules periodically and notifies via webhook.
@@ -139,7 +142,23 @@ func checkAlerts() {
 	alerts.mu.Unlock()
 
 	if len(fired) > 0 && alerts.webhook != "" {
-		go notifyWebhook(fired, activeCnt)
+		// cooldown: only notify for metrics not notified in the last 5 minutes
+		now := time.Now()
+		var todo []AlertEvent
+		for _, e := range fired {
+			if last, ok := alerts.lastNotify[e.Metric]; !ok || now.Sub(last) >= 5*time.Minute {
+				alerts.lastNotify[e.Metric] = now
+				todo = append(todo, e)
+			}
+		}
+		for k, last := range alerts.lastNotify {
+			if now.Sub(last) > 30*time.Minute {
+				delete(alerts.lastNotify, k)
+			}
+		}
+		if len(todo) > 0 {
+			go notifyWebhook(todo, activeCnt)
+		}
 	}
 }
 

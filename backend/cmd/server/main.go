@@ -1,10 +1,16 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"opsweb/internal/api"
 	"opsweb/internal/web"
@@ -51,8 +57,22 @@ func main() {
 	web.Init()
 	api.Version = version + " (built " + buildTime + ")"
 	r := api.NewRouter()
-	log.Printf("opsweb %s listening on %s", version, *addr)
-	if err := r.Run(*addr); err != nil {
-		log.Fatal(err)
+	srv := &http.Server{Addr: *addr, Handler: r}
+
+	go func() {
+		log.Printf("opsweb %s listening on %s", version, *addr)
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Fatal(err)
+		}
+	}()
+
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+	log.Println("shutting down, waiting for in-flight requests...")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(ctx); err != nil {
+		log.Printf("shutdown: %v", err)
 	}
 }

@@ -54,24 +54,18 @@ func actionHandler(kind string, h func(c *gin.Context) (string, error)) gin.Hand
 	}
 }
 
-// NewRouter builds the gin engine with auth and all routes.
-func NewRouter() *gin.Engine {
-	collect.StartSampler()
-	collect.StartAlertChecker()
-
-	gin.SetMode(gin.ReleaseMode)
-	r := gin.New()
-	r.Use(gin.Logger(), gin.Recovery())
-
-	// session auth via Authorization header (sessions stored in pgsql)
-	apiGroup := r.Group("/api")
-	apiGroup.Use(func(c *gin.Context) {
+// sessionAuth extracts the session token from either the
+// Authorization header or a token query param (SSE EventSource can't set headers).
+func sessionAuth() gin.HandlerFunc {
+	return func(c *gin.Context) {
 		if c.Request.Method == http.MethodOptions {
 			c.AbortWithStatus(http.StatusNoContent)
 			return
 		}
-		auth := c.GetHeader("Authorization")
-		t := strings.TrimPrefix(auth, "Bearer ")
+		t := strings.TrimPrefix(c.GetHeader("Authorization"), "Bearer ")
+		if t == "" {
+			t = c.Query("token")
+		}
 		user, ok := dbSessionUser(t)
 		if !ok {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
@@ -80,10 +74,34 @@ func NewRouter() *gin.Engine {
 		}
 		c.Set("username", user)
 		c.Next()
-	})
+	}
+}
+
+// NewRouter builds the gin engine with auth and all routes.
+func NewRouter() *gin.Engine {
+	collect.SetMetricsDB(db)
+	collect.StartSampler(MetricsIngest)
+	collect.StartAlertChecker()
+
+	gin.SetMode(gin.ReleaseMode)
+	r := gin.New()
+	r.Use(gin.Logger(), gin.Recovery())
+
+	// session auth via Authorization header or ?token= (SSE)
+	apiGroup := r.Group("/api")
+	apiGroup.Use(sessionAuth())
 
 	// login is the only unauthenticated endpoint
 	r.POST("/api/login", loginHandler)
+	// health endpoint for CI verify / monitoring (no auth)
+	r.GET("/api/health", func(c *gin.Context) {
+		dbOK := DBHealthy()
+		code := http.StatusOK
+		if !dbOK {
+			code = http.StatusServiceUnavailable
+		}
+		c.JSON(code, gin.H{"code": 0, "data": gin.H{"status": "ok", "db": dbOK}})
+	})
 
 	apiGroup.GET("/ping", func(c *gin.Context) { c.JSON(200, gin.H{"msg": "pong"}) })
 	apiGroup.POST("/logout", logoutHandler)
@@ -128,10 +146,12 @@ func NewRouter() *gin.Engine {
 	// process list
 	apiGroup.GET("/processes", collect.ProcessesHandler)
 
-	// generic log tail + journal + directory browser
+	// generic log tail + journal + directory browser + live follow (SSE)
 	apiGroup.GET("/logs/file", collect.LogFileHandler)
 	apiGroup.GET("/logs/list", collect.LogListHandler)
 	apiGroup.GET("/logs/journal", collect.JournalHandler)
+	apiGroup.GET("/logs/follow", collect.LogFollowHandler)
+	apiGroup.GET("/logs/journal/follow", collect.JournalFollowHandler)
 
 	// account management (pgsql-backed)
 	apiGroup.POST("/account/password", changePassHandler)

@@ -179,7 +179,7 @@ var loadHist = struct {
 
 // StartSampler records cpu/mem percent once a minute for history charts.
 // Samples are persisted to disk and survive restarts (retained 30 days).
-func StartSampler() {
+func StartSampler(metricsIngest func(t int64, name string, v float64)) {
 	loadHist.mu.Lock()
 	loadSampleFromDisk()
 	loadHist.mu.Unlock()
@@ -198,6 +198,10 @@ func StartSampler() {
 			trimHistory(now)
 			loadHist.dirty = true
 			loadHist.mu.Unlock()
+			if metricsIngest != nil {
+				metricsIngest(now.Unix(), "cpu", cp)
+				metricsIngest(now.Unix(), "mem", vm.Percent)
+			}
 			time.Sleep(time.Minute)
 		}
 	}()
@@ -259,7 +263,6 @@ func LoadHistoryHandler(c *gin.Context) {
 	}
 	cutoff := time.Now().Add(-time.Duration(days) * 24 * time.Hour).Unix()
 	loadHist.mu.Lock()
-	defer loadHist.mu.Unlock()
 	var cpuCp, memCp []Sample
 	for _, s := range loadHist.cpu {
 		if s.T >= cutoff {
@@ -271,6 +274,13 @@ func LoadHistoryHandler(c *gin.Context) {
 			memCp = append(memCp, s)
 		}
 	}
+	loadHist.mu.Unlock()
+
+	// merge pgsql-stored metrics (authoritative once available)
+	if dbCpu, dbMem := queryMetrics(cutoff); len(dbCpu) > 0 || len(dbMem) > 0 {
+		cpuCp = mergeSamples(cpuCp, dbCpu)
+		memCp = mergeSamples(memCp, dbMem)
+	}
 	if cpuCp == nil {
 		cpuCp = []Sample{}
 	}
@@ -278,6 +288,28 @@ func LoadHistoryHandler(c *gin.Context) {
 		memCp = []Sample{}
 	}
 	ok(c, gin.H{"cpu": cpuCp, "mem": memCp})
+}
+
+// mergeSamples merges two sorted sample lists, pg wins on duplicate timestamps.
+func mergeSamples(a, b []Sample) []Sample {
+	if len(a) == 0 {
+		return b
+	}
+	if len(b) == 0 {
+		return a
+	}
+	seen := make(map[int64]bool, len(b))
+	for _, s := range b {
+		seen[s.T] = true
+	}
+	out := make([]Sample, 0, len(a)+len(b))
+	for _, s := range a {
+		if !seen[s.T] {
+			out = append(out, s)
+		}
+	}
+	out = append(out, b...)
+	return out
 }
 
 func ProcessesHandler(c *gin.Context) {

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"log"
 	"strings"
 	"sync"
@@ -39,8 +40,19 @@ func InitStore(dsn string, seedUser, seedPass string) error {
 	d.SetMaxOpenConns(4)
 	d.SetMaxIdleConns(2)
 	d.SetConnMaxLifetime(30 * time.Minute)
-	if err = d.Ping(); err != nil {
-		return err
+	// pgsql-baq 容器可能比本服务晚就绪，重试一段时间而不是直接退出
+	var pingErr error
+	for i := 0; i < 30; i++ {
+		pingErr = d.Ping()
+		if pingErr == nil {
+			break
+		}
+		log.Printf("pgsql not ready (%d/30): %v", i+1, pingErr)
+		time.Sleep(2 * time.Second)
+	}
+	if pingErr != nil {
+		d.Close()
+		return fmt.Errorf("pgsql unreachable after retries: %w", pingErr)
 	}
 	db = d
 
@@ -68,7 +80,13 @@ CREATE TABLE IF NOT EXISTS ops_sessions (
 	expires_at TIMESTAMPTZ NOT NULL,
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS idx_ops_sessions_exp ON ops_sessions (expires_at);`
+CREATE INDEX IF NOT EXISTS idx_ops_sessions_exp ON ops_sessions (expires_at);
+CREATE TABLE IF NOT EXISTS ops_metrics (
+	time   TIMESTAMPTZ NOT NULL,
+	metric TEXT NOT NULL,
+	value  DOUBLE PRECISION NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_ops_metrics_time ON ops_metrics (time DESC);`
 	if _, err = db.Exec(schema); err != nil {
 		return err
 	}
@@ -91,13 +109,66 @@ CREATE INDEX IF NOT EXISTS idx_ops_sessions_exp ON ops_sessions (expires_at);`
 		log.Printf("seeded initial user %q into pgsql", seedUser)
 	}
 	go cleanupLoop()
+	go metricsStoreLoop()
 	return nil
+}
+
+// ── metrics (cpu/mem history in pgsql, replaces file persistence) ──
+
+type metricPoint struct {
+	T      int64
+	V      float64
+	Metric string
+}
+
+var metricCh = make(chan metricPoint, 256)
+
+// MetricsIngest queues a sampled point for async pgsql storage.
+func MetricsIngest(t int64, name string, v float64) {
+	select {
+	case metricCh <- metricPoint{T: t, V: v, Metric: name}:
+	default:
+		// channel full: drop oldest samples rather than block the sampler
+		select {
+		case <-metricCh:
+		default:
+		}
+	}
+}
+
+func metricsStoreLoop() {
+	batch := make([]metricPoint, 0, 64)
+	ticker := time.NewTicker(30 * time.Second)
+	for {
+		select {
+		case p := <-metricCh:
+			batch = append(batch, p)
+			if len(batch) >= 64 {
+				flushMetrics(batch)
+				batch = batch[:0]
+			}
+		case <-ticker.C:
+			if len(batch) > 0 {
+				flushMetrics(batch)
+				batch = batch[:0]
+			}
+		}
+	}
+}
+
+func flushMetrics(batch []metricPoint) {
+	for _, p := range batch {
+		db.Exec(`INSERT INTO ops_metrics (time, metric, value) VALUES (to_timestamp($1), $2, $3)`,
+			float64(p.T), p.Metric, p.V)
+	}
 }
 
 func cleanupLoop() {
 	for range time.Tick(1 * time.Hour) {
 		db.Exec(`DELETE FROM ops_sessions WHERE expires_at < now()`)
 		db.Exec(`DELETE FROM ops_audit WHERE time < now() - interval '90 days'`)
+		db.Exec(`DELETE FROM ops_metrics WHERE time < now() - interval '90 days'`)
+		memSessCleanup()
 	}
 }
 
@@ -198,37 +269,97 @@ func dbNewSession(username string) (string, time.Time, error) {
 		tok, username, exp); err != nil {
 		return "", time.Time{}, err
 	}
+	memSessRemember(tok, username)
 	return tok, exp, nil
 }
 
 func dbValidSession(tok string) bool {
-	if tok == "" {
-		return false
-	}
-	var n int
-	if err := db.QueryRow(
-		`SELECT count(*) FROM ops_sessions WHERE token = $1 AND expires_at > now()`, tok).Scan(&n); err != nil {
-		return false
-	}
-	return n > 0
+	_, ok := dbSessionUser(tok)
+	return ok
 }
 
 // dbSessionUser returns the username owning a valid session token.
+// 当 pgsql 短暂不可用时回退到内存副本，避免所有用户被登出。
 func dbSessionUser(tok string) (string, bool) {
 	if tok == "" {
 		return "", false
 	}
 	var un string
-	if err := db.QueryRow(
-		`SELECT username FROM ops_sessions WHERE token = $1 AND expires_at > now()`, tok).Scan(&un); err != nil {
+	err := db.QueryRow(
+		`SELECT username FROM ops_sessions WHERE token = $1 AND expires_at > now()`, tok).Scan(&un)
+	if err == nil {
+		memSessRemember(tok, un)
+		return un, true
+	}
+	if errors.Is(err, sql.ErrNoRows) {
 		return "", false
 	}
-	return un, true
+	// DB 故障：使用内存副本
+	return memSessLookup(tok)
+}
+
+// ── in-memory session mirror (fallback when pgsql is down) ────────
+
+type memSessEntry struct {
+	user string
+	exp  time.Time
+}
+
+var memSess = struct {
+	mu sync.RWMutex
+	m  map[string]memSessEntry
+}{m: map[string]memSessEntry{}}
+
+func memSessRemember(tok, user string) {
+	memSess.mu.Lock()
+	memSess.m[tok] = memSessEntry{user: user, exp: time.Now().Add(sessionTTL)}
+	if len(memSess.m) > 4096 {
+		memSess.mu.Unlock()
+		memSessCleanup()
+		return
+	}
+	memSess.mu.Unlock()
+}
+
+func memSessLookup(tok string) (string, bool) {
+	memSess.mu.RLock()
+	e, ok := memSess.m[tok]
+	memSess.mu.RUnlock()
+	if !ok || time.Now().After(e.exp) {
+		return "", false
+	}
+	return e.user, true
+}
+
+func memSessCleanup() {
+	now := time.Now()
+	memSess.mu.Lock()
+	for k, e := range memSess.m {
+		if now.After(e.exp) {
+			delete(memSess.m, k)
+		}
+	}
+	memSess.mu.Unlock()
+}
+
+func memSessDrop(tok string) {
+	memSess.mu.Lock()
+	delete(memSess.m, tok)
+	memSess.mu.Unlock()
+}
+
+// DBHealthy reports whether pgsql is reachable right now.
+func DBHealthy() bool {
+	if db == nil {
+		return false
+	}
+	return db.Ping() == nil
 }
 
 func dbDropSession(tok string) {
 	if tok != "" {
 		db.Exec(`DELETE FROM ops_sessions WHERE token = $1`, tok)
+		memSessDrop(tok)
 	}
 }
 
