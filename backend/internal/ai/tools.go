@@ -298,17 +298,14 @@ func init() {
 		},
 		toolSpec{
 			Name:        "run_shell",
-			Description: "在服务器上执行一条 shell 命令。纯只读查询会自动执行；其他命令需要用户批准并附带 AI 风险分析；命中黑名单的命令直接拒绝。输出最多截取 8000 字符",
+			Description: "在服务器上执行一条 shell 命令。聊天时仅创建待批请求；用户批准后由审批接口调用本工具实际执行。命中黑名单的命令直接拒绝。输出最多截取 8000 字符",
 			Params:      map[string]Param{"command": pStr("要执行的 shell 命令", true)},
 			Level:       levelShell,
 			Exec: func(args map[string]any) (string, error) {
 				cmd := argStr(args, "command")
-				level, blocked, hints := classifyShell(cmd)
-				if blocked != "" {
+				// approval already granted by the user; blacklist stays a hard gate
+				if _, blocked, _ := classifyShell(cmd); blocked != "" {
 					return "", fmt.Errorf("已被安全策略硬拒绝（%s）", blocked)
-				}
-				if level != levelRead {
-					return "", fmt.Errorf("命令未获批准，请先请求用户批准（风险点: %s）", strings.Join(hints, "、"))
 				}
 				if err := validShellBinary(cmd); err != nil {
 					return "", err
