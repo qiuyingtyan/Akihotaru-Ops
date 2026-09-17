@@ -83,8 +83,8 @@
                 ⚠️ 风险点：{{ p.riskHints.join('、') }}
               </div>
               <div v-if="!p.status" class="ai-card-btns">
-                <button class="btn danger" :disabled="busy" @click="reject(p)">拒绝</button>
-                <button class="btn primary" :disabled="busy" @click="approve(p)">✓ 批准执行</button>
+                <button class="btn danger" :disabled="p.busy" @click="reject(p)">{{ p.busy ? '处理中…' : '拒绝' }}</button>
+                <button class="btn primary" :disabled="p.busy" @click="approve(p)">{{ p.busy ? '执行中…' : '✓ 批准执行' }}</button>
               </div>
               <pre v-if="p.output" class="ai-card-out">{{ p.output }}</pre>
             </div>
@@ -95,6 +95,18 @@
       <div v-if="thinking" class="ai-msg assistant">
         <div class="ai-avatar">🌸</div>
         <div class="ai-bubble"><div class="ai-typing"><span></span><span></span><span></span></div></div>
+      </div>
+
+      <div v-if="followUpLoading" class="ai-msg assistant">
+        <div class="ai-avatar">🌸</div>
+        <div class="ai-bubble"><div class="ai-typing"><span></span><span></span><span></span></div></div>
+      </div>
+
+      <div v-if="followUpText" class="ai-msg assistant">
+        <div class="ai-avatar">🌸</div>
+        <div class="ai-bubble">
+          <div class="ai-text" v-html="renderText(followUpText)"></div>
+        </div>
       </div>
     </div>
 
@@ -134,6 +146,8 @@ const convId = ref(0)
 const convs = ref([])
 const showHistory = ref(false)
 const ctxUsed = ref(0)
+const followUpText = ref('')
+const followUpLoading = ref(false)
 
 const isAdmin = ref(false)
 const showSettings = ref(false)
@@ -327,21 +341,42 @@ async function send(preset) {
 
 async function approve(p) {
   p.busy = true
+  followUpText.value = ''
+  followUpLoading.value = true
   try {
-    const r = await api('/ai/approve', { method: 'POST', body: JSON.stringify({ id: p.id }) })
+    const r = await api('/ai/approve', {
+      method: 'POST',
+      body: JSON.stringify({ id: p.id, conv: convId.value }),
+    })
     p.status = '已执行'
     p.output = (r.ok ? '' : '[执行出错]\n') + r.output
     toast(r.ok ? '执行成功 ♡' : '执行出错，请查看输出', r.ok ? 'success' : 'error')
+    scrollBottom()
+    if (r.follow_up) {
+      followUpText.value = r.follow_up
+      followUpLoading.value = false
+      scrollBottom()
+    }
   } catch (e) {
     p.status = '执行失败'
     p.output = e.message
     toast(e.message, 'error')
   }
+  if (followUpLoading.value) followUpLoading.value = false
   p.busy = false
   scrollBottom()
+  persistFollowUp()
+}
+
+async function persistFollowUp() {
+  if (!followUpText.value) return
+  const text = followUpText.value
+  followUpText.value = ''
+  messages.value.push({ role: 'assistant', content: text })
 }
 
 async function reject(p) {
+  p.busy = true
   try {
     await api('/ai/reject', { method: 'POST', body: JSON.stringify({ id: p.id }) })
     p.status = '已拒绝'
@@ -349,6 +384,7 @@ async function reject(p) {
   } catch (e) {
     toast(e.message, 'error')
   }
+  p.busy = false
 }
 </script>
 
