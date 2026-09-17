@@ -139,8 +139,44 @@ func (s *aiSession) append(m chatMessage) {
 	defer s.mu.Unlock()
 	s.messages = append(s.messages, m)
 	if len(s.messages) > maxSessionMsgs {
-		s.messages = s.messages[len(s.messages)-maxSessionMsgs:]
+		s.messages = safeTruncate(s.messages, maxSessionMsgs)
 	}
+}
+
+// safeTruncate slides the window to keep the last n messages, but moves the
+// cut-point forward so the sequence never starts with an orphan tool reply
+// (a tool message whose assistant tool_calls turn was cut) — otherwise the
+// provider rejects the whole request.
+func safeTruncate(msgs []chatMessage, n int) []chatMessage {
+	if len(msgs) <= n {
+		return msgs
+	}
+	start := len(msgs) - n
+	for start < len(msgs) {
+		m := msgs[start]
+		if m.Role == "tool" {
+			start++
+			continue
+		}
+		if m.Role == "assistant" && len(m.ToolCalls) > 0 {
+			// keep an assistant-with-tool_calls only if all its tool results follow
+			need := len(m.ToolCalls)
+			got := 0
+			for j := start + 1; j < len(msgs) && got < need; j++ {
+				if msgs[j].Role == "tool" {
+					got++
+				} else {
+					break
+				}
+			}
+			if got < need {
+				start++
+				continue
+			}
+		}
+		break
+	}
+	return msgs[start:]
 }
 
 func (s *aiSession) snapshot() []chatMessage {
