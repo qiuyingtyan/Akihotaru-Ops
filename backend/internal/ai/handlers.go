@@ -328,6 +328,10 @@ func describeToolCall(name string, args map[string]any) string {
 
 // ── handlers ────────────────────────────────────────────────────────
 
+// newConvID mints a conversation id server-side (unix ms) so the first
+// message of a brand-new chat persists immediately.
+func newConvID() int64 { return time.Now().UnixMilli() }
+
 // StatusHandler reports whether the assistant is configured.
 func StatusHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": gin.H{"enabled": Enabled(), "model": cfg.Model}})
@@ -345,6 +349,9 @@ func ChatHandler(c *gin.Context) {
 		return
 	}
 	user := c.MustGet("username").(string)
+	if req.Conv <= 0 {
+		req.Conv = newConvID()
+	}
 	c.Set("convId", req.Conv)
 	auditf(c, "ai/chat", truncate(req.Message, 100), "ASK")
 
