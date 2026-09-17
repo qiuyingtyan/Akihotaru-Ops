@@ -109,8 +109,8 @@ func (u *tokenUsage) add(o tokenUsage) {
 
 const (
 	sessionTTL     = 30 * time.Minute
-	maxTurns       = 40 // messages kept per session (user+assistant+tool)
 	maxSessionMsgs = 80
+	maxToolRounds  = 8 // tool-calling loops allowed per chat request
 )
 
 type aiSession struct {
@@ -178,6 +178,20 @@ func (s *aiSession) append(m chatMessage) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.messages = append(s.messages, m)
+	if len(s.messages) > maxSessionMsgs {
+		s.messages = safeTruncate(s.messages, maxSessionMsgs)
+	}
+}
+
+// appendUserMessage records a user turn only when it is not already the
+// latest entry — prevents duplicates when a failed request is retried.
+func (s *aiSession) appendUserMessage(text string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if n := len(s.messages); n > 0 && s.messages[n-1].Role == "user" && s.messages[n-1].Content == text {
+		return
+	}
+	s.messages = append(s.messages, chatMessage{Role: "user", Content: text})
 	if len(s.messages) > maxSessionMsgs {
 		s.messages = safeTruncate(s.messages, maxSessionMsgs)
 	}

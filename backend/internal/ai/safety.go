@@ -36,7 +36,7 @@ func (l safetyLevel) String() string {
 
 var shellBlacklistPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`\brm\s+(-[a-zA-Z-]*[rf][a-zA-Z-]*\s+)*/(\s|$)`),            // rm -rf /
-	regexp.MustCompile(`\brm\s+-[a-zA-Z-]*r[a-zA-Z-]*f`),                          // rm -rf anything
+	regexp.MustCompile(`\brm\s+-[a-zA-Z-]*r[a-zA-Z-]*f|\brm\s+-[a-zA-Z-]*f[a-zA-Z-]*r`), // rm -fr/rf any order
 	regexp.MustCompile(`>\s*/dev/sd[a-z]`),                                        // overwrite disk device
 	regexp.MustCompile(`\bmkfs(\.\w+)?\b`),                                        // format filesystem
 	regexp.MustCompile(`\bdd\s+[^\n]*of=/dev/`),                                   // dd to device
@@ -65,7 +65,7 @@ var shellBlacklistPatterns = []*regexp.Regexp{
 // blockedShellReasons pairs human-readable reasons with patterns.
 var blockedShellReasons = map[string]string{
 	`\brm\s+(-[a-zA-Z-]*[rf][a-zA-Z-]*\s+)*/(\s|$)`: "递归删除根目录",
-	`\brm\s+-[a-zA-Z-]*r[a-zA-Z-]*f`:               "递归强制删除",
+	`\brm\s+-[a-zA-Z-]*r[a-zA-Z-]*f|\brm\s+-[a-zA-Z-]*f[a-zA-Z-]*r`: "递归强制删除",
 	`>\s*/dev/sd[a-z]`:                              "直接写磁盘设备",
 	`\bmkfs(\.\w+)?\b`:                              "格式化文件系统",
 	`\bdd\s+[^\n]*of=/dev/`:                         "dd 写入设备",
@@ -110,31 +110,22 @@ var dangerousHintRegexps = []struct {
 	{regexp.MustCompile(`\b(bash|sh)\s+-c\b`), "嵌套 shell 执行"},
 }
 
-// commandPathWhitelist: binaries the assistant may run without approval
-// when the command is a pure read-only query.
-var readFirstWord = map[string]bool{
-	"cat": false, "ls": true, "head": true, "tail": true, "grep": true,
-	"df": true, "du": true, "free": true, "uptime": true, "who": true,
-	"ps": true, "top": false, "date": true, "hostname": true,
-	"docker": false, "systemctl": false, "journalctl": true,	"curl": false, "wget": false, "ss": true, "ip": false,
-	"find": false, "wc": true, "stat": true, "echo": true,
-	"uname": true, "lscpu": true, "vmstat": true, "iostat": true,
-	"ping": false, "dig": true, "nslookup": true, "git": false,
-	"tar": false, "gzip": false, "less": false, "more": false,
-	"awk": false, "sed": false, "tr": true, "sort": true, "uniq": true,
-	"cut": true, "xargs": false, "tee": false, "sudo": false,
-	"systemctl1": false, "nvidia-smi": true, "env": false,
-	"printenv": true, "id": true, "groups": true, "whoami": true,	"nc": false, "telnet": false, "apt": false, "yum": false,
-	"pip": false, "npm": false, "python": false, "python3": false,
-	"chmod": false, "chown": false, "mv": false, "cp": false,
-	"rm": false, "mkdir": false, "touch": false, "dd": false,
-	"mkfs": false, "shutdown": false, "reboot": false, "kill": false,
-	"pkill": false, "killall": false, "nohup": false, "setsid": false,
-	">": false, ">>": false, "|": false, ";": false, "&": false,
+// sensitiveTargetRegexps: reading these targets leaks credentials or
+// private data; such commands never auto-run even when read-only.
+var sensitiveTargetRegexps = []struct {
+	re     *regexp.Regexp
+	reason string
+}{
+	{regexp.MustCompile(`(^|\s)/etc/(shadow|gshadow)\b`), "读取账号口令文件"},
+	{regexp.MustCompile(`(^|\s)/root/\.ssh/`), "读取 SSH 私钥目录"},
+	{regexp.MustCompile(`(^|\s)/root/\.bash_history`), "读取 shell 历史"},
+	{regexp.MustCompile(`(^|\s)[^\s]*id_(rsa|ed25519|ecdsa)(\.\w+)?$`), "读取 SSH 私钥文件"},
+	{regexp.MustCompile(`\.(git-credentials|netrc|pem)\b|\.aws/(credentials|config)\b|\.kube/config\b`), "读取云凭证/私钥文件"},
+	{regexp.MustCompile(`(^|\s)(env|printenv)(\s|$)`), "导出环境变量（可能含密钥）"},
 }
 
-// shellSafePrefixes: commands that only gather status and never mutate,
-// auto-approved as read-level when the whole command stays read-only.
+// commandPathWhitelist: binaries the assistant may run without approval
+// when the command is a pure read-only query.
 var shellReadOnlyFirstWord = map[string]bool{
 	"cat": true, "ls": true, "head": true, "tail": true, "grep": true,
 	"df": true, "du": true, "free": true, "uptime": true, "who": true,
@@ -153,24 +144,29 @@ func classifyShell(cmd string) (safetyLevel, string, []string) {
 		return levelShell, "空命令", nil
 	}
 
-	for _, re := range shellBlacklistPatterns {
-		if re.MatchString(cmd) {
-			return levelShell, "命令命中安全黑名单：" + reasonFor(re.String()), nil
+	var hints []string
+	for _, s := range sensitiveTargetRegexps {
+		if s.re.MatchString(cmd) {
+			hints = append(hints, s.reason)
 		}
 	}
-
-	var hints []string
 	for _, d := range dangerousHintRegexps {
 		if d.re.MatchString(cmd) {
 			hints = append(hints, d.reason)
 		}
 	}
 
-	// Pure read-only pipelines: every segment starts with a whitelisted
-	// read-only binary, no redirection/appending/background operators,
-	// no flags that mutate (e.g. grep > file). Then auto-execute.
+	// Pure read-only pipelines without sensitive targets or risky flags
+	// auto-execute. Checked BEFORE the blacklist so query commands that
+	// merely mention banned words (e.g. grep shutdown /var/log/x) work.
 	if isReadOnlyPipeline(cmd) && len(hints) == 0 {
 		return levelRead, "", nil
+	}
+
+	for _, re := range shellBlacklistPatterns {
+		if re.MatchString(cmd) {
+			return levelShell, "命令命中安全黑名单：" + reasonFor(re.String()), nil
+		}
 	}
 	if len(hints) == 0 {
 		return levelWrite, "", nil
@@ -222,7 +218,7 @@ func isReadOnlyPipeline(cmd string) bool {
 // subcommands; the first argument must be whitelisted.
 var shellReadOnlySubcommands = map[string]map[string]bool{
 	"docker": {
-		"ps": true, "images": true, "logs": true, "inspect": true, "stats": true,
+		"ps": true, "images": true, "logs": true, "stats": true,
 		"top": true, "version": true, "info": true, "port": true, "diff": true,
 	},
 	"systemctl": {
