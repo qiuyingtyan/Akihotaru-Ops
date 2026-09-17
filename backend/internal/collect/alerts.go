@@ -248,6 +248,10 @@ func notifyWebhook(events []AlertEvent, activeCnt int) {
 }
 
 func AlertsHandler(c *gin.Context) {
+	ok(c, CoreAlerts())
+}
+
+func CoreAlerts() gin.H {
 	alerts.mu.Lock()
 	defer alerts.mu.Unlock()
 	active := make([]AlertEvent, 0, len(alerts.active))
@@ -258,5 +262,5 @@ func AlertsHandler(c *gin.Context) {
 	if recent == nil {
 		recent = []AlertEvent{}
 	}
-	ok(c, gin.H{"active": active, "recent": recent})
+	return gin.H{"active": active, "recent": recent}
 }

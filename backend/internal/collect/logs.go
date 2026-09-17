@@ -3,6 +3,7 @@ package collect
 import (
 	"bufio"
 	"compress/gzip"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -27,35 +28,41 @@ var noisyUnits = []string{"user@1000.service", "session-c1.scope", "session-1596
 // JournalHandler tails systemd journal via journalctl.
 // params: unit, since, grep, tail
 func JournalHandler(c *gin.Context) {
-	if _, err := exec.LookPath("journalctl"); err != nil {
-		fail(c, "journalctl 不可用")
+	data, err := CoreJournal(c.Query("unit"), c.Query("since"), c.Query("grep"), c.DefaultQuery("tail", "200"))
+	if err != nil {
+		fail(c, err.Error())
 		return
 	}
+	ok(c, data)
+}
+
+func CoreJournal(unit, since, grep, tail string) (gin.H, error) {
+	if _, err := exec.LookPath("journalctl"); err != nil {
+		return nil, fmt.Errorf("journalctl 不可用")
+	}
 	args := []string{"--no-pager", "-q", "-o", "short-iso"}
-	if unit := c.Query("unit"); unit != "" {
+	if unit != "" {
 		if !validUnitName(unit) {
-			fail(c, "非法的 unit 名称")
-			return
+			return nil, fmt.Errorf("非法的 unit 名称")
 		}
 		args = append(args, "-u", unit)
 	}
-	if since := c.Query("since"); since != "" {
+	if since != "" {
 		args = append(args, "--since", since)
 	}
-	if grep := c.Query("grep"); grep != "" {
+	if grep != "" {
 		args = append(args, "--grep", grep)
 	}
 	args = append(args, "--reverse")
 
-	n := clampTail(c.DefaultQuery("tail", "200"))
+	n := clampTail(tail)
 
 	// fetch a generous window then trim to n lines
 	cmd := exec.Command("journalctl", args...)
 	cmd.Stderr = nil
 	out, err := cmd.Output()
 	if err != nil {
-		fail(c, "journalctl 执行失败: "+err.Error())
-		return
+		return nil, fmt.Errorf("journalctl 执行失败: %w", err)
 	}
 	lines := strings.Split(strings.TrimRight(string(out), "\n"), "\n")
 	if len(lines) > n {
@@ -65,7 +72,7 @@ func JournalHandler(c *gin.Context) {
 			lines[i], lines[j] = lines[j], lines[i]
 		}
 	}
-	ok(c, gin.H{"lines": lines, "count": len(lines)})
+	return gin.H{"lines": lines, "count": len(lines)}, nil
 }
 
 func validUnitName(u string) bool {
@@ -191,33 +198,36 @@ func tailLines(r io.Reader, n int) []string {
 
 // LogFileHandler tails a whitelisted log file (plain or .gz).
 func LogFileHandler(c *gin.Context) {
-	path := c.Query("path")
-	if path == "" {
-		fail(c, "path required")
+	data, err := CoreLogFile(c.Query("path"), c.DefaultQuery("tail", "200"))
+	if err != nil {
+		fail(c, err.Error())
 		return
+	}
+	ok(c, data)
+}
+
+func CoreLogFile(path, tail string) (gin.H, error) {
+	if path == "" {
+		return nil, fmt.Errorf("path required")
 	}
 	clean, err := resolveLogPath(path)
 	if err != nil {
-		fail(c, err.Error())
-		return
+		return nil, err
 	}
-	n := clampTail(c.DefaultQuery("tail", "200"))
+	n := clampTail(tail)
 
 	f, err := os.Open(clean)
 	if err != nil {
-		fail(c, err.Error())
-		return
+		return nil, err
 	}
 	defer f.Close()
 
 	st, err := f.Stat()
 	if err != nil {
-		fail(c, err.Error())
-		return
+		return nil, err
 	}
 	if st.IsDir() {
-		fail(c, "这是一个目录，请选择具体文件（可用目录浏览接口）")
-		return
+		return nil, fmt.Errorf("这是一个目录，请选择具体文件（可用目录浏览接口）")
 	}
 
 	var lines []string
@@ -226,8 +236,7 @@ func LogFileHandler(c *gin.Context) {
 		// gz: whole-file decompress but cap at 64MB decompressed
 		gz, gerr := gzip.NewReader(io.LimitReader(f, maxLogReadBytes))
 		if gerr != nil {
-			fail(c, gerr.Error())
-			return
+			return nil, gerr
 		}
 		defer gz.Close()
 		lines = tailLines(gz, n)
@@ -237,24 +246,22 @@ func LogFileHandler(c *gin.Context) {
 		if size > maxLogReadBytes {
 			readFrom = size - maxLogReadBytes
 			if _, err := f.Seek(readFrom, io.SeekStart); err != nil {
-				fail(c, err.Error())
-				return
+				return nil, err
 			}
 			// skip to next newline to avoid a partial first line
 			br := bufio.NewReader(f)
 			if _, err := br.ReadString('\n'); err != nil && err != io.EOF {
-				fail(c, err.Error())
-				return
+				return nil, err
 			}
 			lines = tailLines(br, n)
 		} else {
 			lines = tailLines(bufio.NewReader(f), n)
 		}
 	}
-	ok(c, gin.H{
+	return gin.H{
 		"path":  clean,
 		"lines": lines,
 		"size":  size,
 		"mtime": st.ModTime().Format("2006-01-02 15:04:05"),
-	})
+	}, nil
 }

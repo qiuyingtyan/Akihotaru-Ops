@@ -23,13 +23,21 @@ type Container struct {
 }
 
 func ContainersHandler(c *gin.Context) {
-	out, err := run(10*time.Second, "docker", "ps", "-a", "--no-trunc",
-		"--format", "{{.ID}}\t{{.Names}}\t{{.Image}}\t{{.State}}\t{{.Status}}\t{{.Ports}}\t{{.CreatedAt}}")
+	list, err := CoreContainers()
 	if err != nil {
 		fail(c, err.Error())
 		return
 	}
-	var list []Container
+	ok(c, list)
+}
+
+func CoreContainers() ([]Container, error) {
+	out, err := run(10*time.Second, "docker", "ps", "-a", "--no-trunc",
+		"--format", "{{.ID}}\t{{.Names}}\t{{.Image}}\t{{.State}}\t{{.Status}}\t{{.Ports}}\t{{.CreatedAt}}")
+	if err != nil {
+		return nil, err
+	}
+	list := []Container{}
 	for _, line := range strings.Split(out, "\n") {
 		f := strings.Split(line, "\t")
 		if len(f) < 7 {
@@ -44,12 +52,14 @@ func ContainersHandler(c *gin.Context) {
 			Status: f[4], Ports: ports, CreatedAt: f[6],
 		})
 	}
-	ok(c, list)
+	return list, nil
 }
 
 func ContainerAction(c *gin.Context) (string, error) {
-	name := c.Param("name")
-	action := c.Param("action")
+	return CoreContainerAction(c.Param("name"), c.Param("action"))
+}
+
+func CoreContainerAction(name, action string) (string, error) {
 	var args []string
 	switch action {
 	case "start", "stop", "restart", "kill", "pause", "unpause":
@@ -70,14 +80,16 @@ func ContainerAction(c *gin.Context) (string, error) {
 }
 
 func ContainerLogsHandler(c *gin.Context) {
-	name := c.Param("name")
-	tail := c.DefaultQuery("tail", "200")
-	out, err := run(15*time.Second, "docker", "logs", "--tail", tail, name)
+	out, err := CoreContainerLogs(c.Param("name"), c.DefaultQuery("tail", "200"))
 	if err != nil && out == "" {
 		fail(c, err.Error())
 		return
 	}
 	ok(c, out)
+}
+
+func CoreContainerLogs(name, tail string) (string, error) {
+	return run(15*time.Second, "docker", "logs", "--tail", tail, name)
 }
 
 type Image struct {
@@ -88,13 +100,21 @@ type Image struct {
 }
 
 func ImagesHandler(c *gin.Context) {
-	out, err := run(15*time.Second, "docker", "images", "--format",
-		"{{.Repository}}\t{{.Tag}}\t{{.Size}}\t{{.CreatedSince}}")
+	list, err := CoreImages()
 	if err != nil {
 		fail(c, err.Error())
 		return
 	}
-	var list []Image
+	ok(c, list)
+}
+
+func CoreImages() ([]Image, error) {
+	out, err := run(15*time.Second, "docker", "images", "--format",
+		"{{.Repository}}\t{{.Tag}}\t{{.Size}}\t{{.CreatedSince}}")
+	if err != nil {
+		return nil, err
+	}
+	list := []Image{}
 	for _, line := range strings.Split(out, "\n") {
 		f := strings.Split(line, "\t")
 		if len(f) < 4 {
@@ -103,7 +123,7 @@ func ImagesHandler(c *gin.Context) {
 		list = append(list, Image{Repository: f[0], Tag: f[1], Size: f[2], Created: f[3]})
 	}
 	sort.Slice(list, func(i, j int) bool { return list[i].Repository < list[j].Repository })
-	ok(c, list)
+	return list, nil
 }
 
 type Project struct {
@@ -125,10 +145,13 @@ var knownProjects = map[string][]string{
 }
 
 func ProjectsHandler(c *gin.Context) {
+	ok(c, CoreProjects())
+}
+
+func CoreProjects() []Project {
 	out, err := run(10*time.Second, "docker", "ps", "-a", "--format", "{{.Names}}\t{{.State}}\t{{.Status}}")
 	if err != nil {
-		fail(c, err.Error())
-		return
+		return []Project{}
 	}
 	stateMap := map[string]string{}
 	for _, line := range strings.Split(out, "\n") {
@@ -137,7 +160,7 @@ func ProjectsHandler(c *gin.Context) {
 			stateMap[f[0]] = f[1] + "|" + strings.Join(f[2:], "\t")
 		}
 	}
-	var list []Project
+	list := []Project{}
 	for name, cons := range knownProjects {
 		p := Project{Name: name, Kind: "docker-compose", Containers: []string{}}
 		switch name {
@@ -163,7 +186,7 @@ func ProjectsHandler(c *gin.Context) {
 		list = append(list, p)
 	}
 	sort.Slice(list, func(i, j int) bool { return list[i].Name < list[j].Name })
-	ok(c, list)
+	return list
 }
 
 func dirSizeMB(path string) int64 {
@@ -191,11 +214,10 @@ var deployMu sync.Mutex
 var deployBusy = false
 
 func ProjectAction(c *gin.Context) (string, error) {
-	name := c.Param("name")
-	action := c.Param("action")
-	if action != "deploy" {
-		return "", fmt.Errorf("unsupported action: %s", action)
-	}
+	return CoreProjectDeploy(c.Param("name"))
+}
+
+func CoreProjectDeploy(name string) (string, error) {
 	script, ok := projectDeploy[name]
 	if !ok {
 		return "", fmt.Errorf("no deploy method for project: %s", name)
@@ -253,12 +275,15 @@ func finishDeployOutput(name, out string, err error) {
 }
 
 func DeployStatusHandler(c *gin.Context) {
-	name := c.Param("name")
+	ok(c, CoreDeployStatus(c.Param("name")))
+}
+
+func CoreDeployStatus(name string) string {
 	deployState.Lock()
 	defer deployState.Unlock()
 	out := deployState.outputs[name]
 	if out == "" {
 		out = "（无进行中或最近的部署记录）"
 	}
-	ok(c, out)
+	return out
 }

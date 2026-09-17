@@ -24,12 +24,15 @@ var interestingServiceKeywords = []string{
 }
 
 func ServicesHandler(c *gin.Context) {
+	ok(c, CoreServices())
+}
+
+func CoreServices() []Service {
 	out2, err := run(10*time.Second, "systemctl", "list-units", "--type=service", "--all", "--no-pager", "--no-legend")
 	if err != nil {
-		fail(c, err.Error())
-		return
+		return []Service{}
 	}
-	var list []Service
+	list := []Service{}
 	for _, line := range strings.Split(out2, "\n") {
 		fields := strings.Fields(line)
 		if len(fields) < 4 {
@@ -58,12 +61,14 @@ func ServicesHandler(c *gin.Context) {
 		list = append(list, Service{Name: name, Desc: desc, Active: state, Sub: fields[3]})
 	}
 	sort.Slice(list, func(i, j int) bool { return list[i].Name < list[j].Name })
-	ok(c, list)
+	return list
 }
 
 func ServiceAction(c *gin.Context) (string, error) {
-	name := c.Param("name")
-	action := c.Param("action")
+	return CoreServiceAction(c.Param("name"), c.Param("action"))
+}
+
+func CoreServiceAction(name, action string) (string, error) {
 	switch action {
 	case "start", "stop", "restart", "status":
 	default:
@@ -84,9 +89,12 @@ func ServiceAction(c *gin.Context) (string, error) {
 }
 
 func RunnerLogsHandler(c *gin.Context) {
-	tail := c.DefaultQuery("tail", "100")
-	out, _ := run(15*time.Second, "docker", "logs", "--tail", tail, "baq-gitlab-runner")
+	out, _ := CoreRunnerLogs(c.DefaultQuery("tail", "100"))
 	ok(c, out)
+}
+
+func CoreRunnerLogs(tail string) (string, error) {
+	return run(15*time.Second, "docker", "logs", "--tail", tail, "baq-gitlab-runner")
 }
 
 type CICDSummary struct {
@@ -106,6 +114,10 @@ type CIJob struct {
 }
 
 func CICDSummaryHandler(c *gin.Context) {
+	ok(c, CoreCICDSummary())
+}
+
+func CoreCICDSummary() CICDSummary {
 	s := CICDSummary{CIJobs: []CIJob{}, DeployHooks: []string{}}
 	var wg syncWaitGroup
 
@@ -147,7 +159,7 @@ func CICDSummaryHandler(c *gin.Context) {
 		s.DeployHooks = append(s.DeployHooks, findScripts("/workspace/YangQingDe")...)
 	})
 	wg.Wait()
-	ok(c, s)
+	return s
 }
 
 func firstLines(s string, n int) string {

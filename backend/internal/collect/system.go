@@ -47,16 +47,19 @@ var overviewCache = struct {
 // CachedOverviewHandler serves the overview with a 3s TTL to avoid
 // hammering docker/proc when many tabs poll simultaneously.
 func CachedOverviewHandler(c *gin.Context) {
+	ok(c, CoreOverviewCached())
+}
+
+func CoreOverviewCached() *Overview {
 	overviewCache.Lock()
 	defer overviewCache.Unlock()
 	if overviewCache.o != nil && time.Since(overviewCache.t) < 3*time.Second {
-		ok(c, overviewCache.o)
-		return
+		return overviewCache.o
 	}
 	o := buildOverview()
 	overviewCache.o = &o
 	overviewCache.t = time.Now()
-	ok(c, o)
+	return overviewCache.o
 }
 
 func OverviewHandler(c *gin.Context) {
@@ -117,12 +120,20 @@ func buildOverview() Overview {
 }
 
 func DiskHandler(c *gin.Context) {
-	out, err := run(10*time.Second, "df", "-B1", "--output=source,fstype,size,used,avail,pcent,target")
+	list, err := CoreDisks()
 	if err != nil {
 		fail(c, err.Error())
 		return
 	}
-	var list []DiskInfo
+	ok(c, list)
+}
+
+func CoreDisks() ([]DiskInfo, error) {
+	out, err := run(10*time.Second, "df", "-B1", "--output=source,fstype,size,used,avail,pcent,target")
+	if err != nil {
+		return nil, err
+	}
+	list := []DiskInfo{}
 	lines := strings.Split(out, "\n")
 	for i, line := range lines {
 		if i == 0 || strings.TrimSpace(line) == "" {
@@ -141,7 +152,7 @@ func DiskHandler(c *gin.Context) {
 			UsedPct: pct, Mountpoint: f[len(f)-1],
 		})
 	}
-	ok(c, list)
+	return list, nil
 }
 
 func MemHandler(c *gin.Context) {
@@ -261,6 +272,11 @@ func LoadHistoryHandler(c *gin.Context) {
 	if d, err := strconv.Atoi(c.DefaultQuery("days", "1")); err == nil && d >= 1 && d <= 30 {
 		days = d
 	}
+	cpuCp, memCp := CoreLoadHistory(days)
+	ok(c, gin.H{"cpu": cpuCp, "mem": memCp})
+}
+
+func CoreLoadHistory(days int) ([]Sample, []Sample) {
 	cutoff := time.Now().Add(-time.Duration(days) * 24 * time.Hour).Unix()
 	loadHist.mu.Lock()
 	var cpuCp, memCp []Sample
@@ -287,7 +303,7 @@ func LoadHistoryHandler(c *gin.Context) {
 	if memCp == nil {
 		memCp = []Sample{}
 	}
-	ok(c, gin.H{"cpu": cpuCp, "mem": memCp})
+	return cpuCp, memCp
 }
 
 // mergeSamples merges two sorted sample lists, pg wins on duplicate timestamps.
@@ -313,10 +329,14 @@ func mergeSamples(a, b []Sample) []Sample {
 }
 
 func ProcessesHandler(c *gin.Context) {
+	ok(c, CoreProcesses())
+}
+
+func CoreProcesses() []ProcProcess {
 	procs := listProcesses()
 	sort.Slice(procs, func(i, j int) bool { return procs[i].CPUPerc > procs[j].CPUPerc })
 	if len(procs) > 50 {
 		procs = procs[:50]
 	}
-	ok(c, procs)
+	return procs
 }

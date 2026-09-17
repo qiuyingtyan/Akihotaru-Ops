@@ -97,6 +97,10 @@ var pipelineCache = struct {
 
 // PipelinesHandler returns recent CI/CD job results (cached 60s).
 func PipelinesHandler(c *gin.Context) {
+	ok(c, CorePipelines())
+}
+
+func CorePipelines() []PipelineJob {
 	pipelineCache.Lock()
 	defer pipelineCache.Unlock()
 	if pipelineCache.jobs == nil || time.Since(pipelineCache.t) > time.Minute {
@@ -106,5 +110,5 @@ func PipelinesHandler(c *gin.Context) {
 	if pipelineCache.jobs == nil {
 		pipelineCache.jobs = []PipelineJob{}
 	}
-	ok(c, pipelineCache.jobs)
+	return pipelineCache.jobs
 }
