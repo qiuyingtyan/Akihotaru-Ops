@@ -195,9 +195,11 @@ onMounted(async () => {
 
 async function toggleHistory() {
   showHistory.value = !showHistory.value
-  if (showHistory.value) {
-    try { convs.value = (await api('/ai/history')) || [] } catch { /* ignore */ }
-  }
+  if (showHistory.value) await refreshConvs()
+}
+
+async function refreshConvs() {
+  try { convs.value = (await api('/ai/history')) || [] } catch { /* ignore */ }
 }
 
 async function loadConvMessages(id) {
@@ -235,7 +237,7 @@ async function deleteOne(cv) {
   try {
     await api('/ai/history/clear', { method: 'POST', body: JSON.stringify({ conv: cv.convId }) })
     if (cv.convId === convId.value) await newChat(false)
-    convs.value = (await api('/ai/history')) || []
+    await refreshConvs()
     toast('已删除该历史对话', 'success')
   } catch (e) {
     toast(e.message, 'error')
@@ -319,12 +321,8 @@ async function send(preset) {
       body: JSON.stringify({ message: text, conv: convId.value }),
     })
     if (!convId.value) {
-      convId.value = r.conv || Date.now()
-      convs.value = [{ convId: convId.value, title: text, msgs: 2, lastTime: '刚刚' }, ...convs.value]
-      if (convs.value.length > 20) convs.value = convs.value.slice(0, 20)
-    } else {
-      const cv = convs.value.find(x => x.convId === convId.value)
-      if (cv) { cv.msgs = (cv.msgs || 0) + 2; cv.lastTime = '刚刚' }
+      convId.value = r.conv
+      await refreshConvs()
     }
     messages.value.push({
       role: 'assistant',
