@@ -117,7 +117,9 @@
           class="ai-input"
           placeholder="描述你的问题或想执行的操作…"
           :disabled="thinking"
-          @keyup.enter="send()"
+          @compositionend="imeComposing = false"
+          @compositionstart="imeComposing = true"
+          @keyup.enter="onEnterKey"
         />
         <div class="ai-ctx" :class="{ warn: ctxPct <= 20 }">
           <div class="ai-ctx-bar"><div class="ai-ctx-fill" :style="{ width: ctxPct + '%' }"></div></div>
@@ -148,6 +150,12 @@ const showHistory = ref(false)
 const ctxUsed = ref(0)
 const followUpText = ref('')
 const followUpLoading = ref(false)
+const imeComposing = ref(false)
+
+function onEnterKey() {
+  if (imeComposing.value) return
+  send()
+}
 
 const isAdmin = ref(false)
 const showSettings = ref(false)
@@ -250,6 +258,8 @@ async function newChat(refreshList = true) {
   convId.value = 0
   messages.value = []
   ctxUsed.value = 0
+  followUpText.value = ''
+  followUpLoading.value = false
   if (refreshList) showHistory.value = false
 }
 
@@ -376,7 +386,7 @@ async function persistFollowUp() {
 async function reject(p) {
   p.busy = true
   try {
-    await api('/ai/reject', { method: 'POST', body: JSON.stringify({ id: p.id }) })
+    await api('/ai/reject', { method: 'POST', body: JSON.stringify({ id: p.id, conv: convId.value }) })
     p.status = '已拒绝'
     toast('已拒绝该操作', 'success')
   } catch (e) {

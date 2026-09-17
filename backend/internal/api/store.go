@@ -436,9 +436,17 @@ func dbHistTrimConvs(user string, keep int) error {
 }
 
 func dbHistConvs(user string) ([]gin.H, error) {
-	rows, err := db.Query(`SELECT conv_id, max(id), to_char(max(created_at), 'YYYY-MM-DD HH24:MI'), count(*)
-		FROM ops_chat_history WHERE username = $1 AND conv_id > 0
-		GROUP BY conv_id ORDER BY max(id) DESC`, user)
+	rows, err := db.Query(`SELECT c.conv_id, max(c.id),
+			to_char(max(c.created_at), 'YYYY-MM-DD HH24:MI'), count(*),
+			coalesce(max(c.title), '')
+		FROM ops_chat_history c
+		JOIN LATERAL (
+			SELECT content AS title FROM ops_chat_history h2
+			WHERE h2.username = c.username AND h2.conv_id = c.conv_id AND h2.role = 'user'
+			ORDER BY h2.id LIMIT 1
+		) t ON true
+		WHERE c.username = $1 AND c.conv_id > 0
+		GROUP BY c.conv_id ORDER BY max(c.id) DESC`, user)
 	if err != nil {
 		return nil, err
 	}
@@ -446,13 +454,10 @@ func dbHistConvs(user string) ([]gin.H, error) {
 	var out []gin.H
 	for rows.Next() {
 		var conv, maxID, cnt int64
-		var lastTime string
-		if err := rows.Scan(&conv, &maxID, &lastTime, &cnt); err != nil {
+		var lastTime, title string
+		if err := rows.Scan(&conv, &maxID, &lastTime, &cnt, &title); err != nil {
 			return nil, err
 		}
-		title := ""
-		_ = db.QueryRow(`SELECT content FROM ops_chat_history
-			WHERE username = $1 AND conv_id = $2 AND role = 'user' ORDER BY id LIMIT 1`, user, conv).Scan(&title)
 		out = append(out, gin.H{"convId": conv, "lastId": maxID, "title": title, "lastTime": lastTime, "msgs": cnt})
 	}
 	return out, rows.Err()
