@@ -5,8 +5,28 @@
       <div class="ai-head-actions">
         <span v-if="!enabled" class="badge yellow">未配置 API Key</span>
         <span v-else class="badge green">{{ modelName || '已连接' }}</span>
+        <button class="btn" @click="toggleHistory">📚 历史（{{ convs.length }}/20）</button>
         <button v-if="isAdmin" class="btn" @click="openSettings">⚙️ 设置</button>
-        <button class="btn" @click="clearChat">🗑️ 新对话</button>
+        <button class="btn" :disabled="thinking" @click="newChat">✨ 新对话</button>
+      </div>
+    </div>
+
+    <div v-if="showHistory" class="card ai-history">
+      <div class="ai-history-head">
+        <span class="ai-history-title-head">历史对话 <span class="muted">（最多保留 20 次，点击可继续对话）</span></span>
+        <button class="btn" @click="toggleHistory">收起</button>
+      </div>
+      <div v-if="!convs.length" class="ai-history-empty muted">还没有历史对话</div>
+      <div
+        v-for="cv in convs"
+        :key="cv.convId"
+        :class="['ai-history-item', { active: cv.convId === convId }]"
+      >
+        <div class="ai-history-main" @click="openConv(cv)">
+          <div class="ai-history-title">{{ cv.title || '（无标题）' }}</div>
+          <div class="ai-history-meta">{{ cv.msgs }} 条消息 · 最后 {{ cv.lastTime }}</div>
+        </div>
+        <button class="btn danger ai-history-del" @click="deleteOne(cv)">删除</button>
       </div>
     </div>
 
@@ -37,7 +57,7 @@
     </div>
 
     <div ref="chatBox" class="ai-chat card">
-      <div v-if="!messages.length" class="ai-welcome">
+      <div v-if="!messages.length && !thinking" class="ai-welcome">
         <div class="ai-welcome-icon">🌸</div>
         <p>你好，我是 AI 运维助手～</p>
         <p class="muted">可以问我服务器状态、帮你看日志、重启容器或部署项目。危险操作会先经过风险分析并需要你确认哦。</p>
@@ -79,13 +99,19 @@
     </div>
 
     <div class="ai-input-bar">
-      <input
-        v-model="draft"
-        class="ai-input"
-        placeholder="描述你的问题或想执行的操作…"
-        :disabled="thinking"
-        @keyup.enter="send()"
-      />
+      <div class="ai-input-wrap">
+        <input
+          v-model="draft"
+          class="ai-input"
+          placeholder="描述你的问题或想执行的操作…"
+          :disabled="thinking"
+          @keyup.enter="send()"
+        />
+        <div class="ai-ctx" :class="{ warn: ctxPct <= 20 }">
+          <div class="ai-ctx-bar"><div class="ai-ctx-fill" :style="{ width: ctxPct + '%' }"></div></div>
+          <span class="ai-ctx-label">剩余 {{ ctxPct }}% · {{ ctxUsedK }}k/{{ ctxWindowK }}k</span>
+        </div>
+      </div>
       <button class="btn primary ai-send" :disabled="thinking || !draft.trim()" @click="send()">发送 ➤</button>
     </div>
     <p class="ai-foot muted">AI 输出仅供参考，写操作和 shell 命令需人工批准，全部记录审计日志</p>
@@ -93,9 +119,9 @@
 </template>
 
 <script setup>
-import { ref, nextTick, onMounted } from 'vue'
+import { ref, computed, nextTick, onMounted } from 'vue'
 import { api } from '../api.js'
-import { toast } from '../ui.js'
+import { toast, confirmDialog } from '../ui.js'
 
 const messages = ref([])
 const draft = ref('')
@@ -103,6 +129,11 @@ const thinking = ref(false)
 const enabled = ref(false)
 const modelName = ref('')
 const chatBox = ref(null)
+
+const convId = ref(0)
+const convs = ref([])
+const showHistory = ref(false)
+const ctxUsed = ref(0)
 
 const isAdmin = ref(false)
 const showSettings = ref(false)
@@ -120,29 +151,17 @@ const suggestions = [
   '磁盘使用率多少？',
 ]
 
+const CTX_WINDOW = 131072
+const ctxPct = computed(() => Math.max(0, Math.round(100 - (ctxUsed.value / CTX_WINDOW) * 100)))
+const ctxUsedK = computed(() => Math.round(ctxUsed.value / 1000))
+const ctxWindowK = computed(() => Math.round(CTX_WINDOW / 1000))
+
 onMounted(async () => {
   try {
     const s = await api('/ai/status')
     enabled.value = s.enabled
     modelName.value = s.model
   } catch { /* ignore */ }
-  try {
-    const h = await api('/ai/history')
-    messages.value = (h || []).map(m => ({
-      role: m.role === 'user' ? 'user' : 'assistant',
-      content: m.text || '',
-      time: m.time,
-      pendingCards: (m.cards || []).map(cd => ({
-        id: cd.id,
-        level: cd.level === 'shell' ? 'shell' : 'write',
-        command: cd.command,
-        riskHints: cd.riskHints,
-        status: cd.status,
-        output: cd.output,
-      })),
-    }))
-    scrollBottom()
-  } catch { /* no history */ }
   try {
     await api('/users')
     isAdmin.value = true
@@ -155,7 +174,74 @@ onMounted(async () => {
     form.value.model = st.model || ''
     if (st.enabled) enabled.value = true
   } catch { /* non-admin */ }
+  try {
+    convs.value = (await api('/ai/history')) || []
+  } catch { /* no history */ }
 })
+
+async function toggleHistory() {
+  showHistory.value = !showHistory.value
+  if (showHistory.value) {
+    try { convs.value = (await api('/ai/history')) || [] } catch { /* ignore */ }
+  }
+}
+
+async function loadConvMessages(id) {
+  const h = await api('/ai/history?conv=' + id)
+  messages.value = (h || []).map(m => ({
+    role: m.role === 'user' ? 'user' : 'assistant',
+    content: m.text || '',
+    time: m.time,
+    pendingCards: (m.cards || []).map(cd => ({
+      id: cd.id,
+      level: cd.level === 'shell' ? 'shell' : 'write',
+      command: cd.command,
+      riskHints: cd.riskHints,
+      status: cd.status,
+      output: cd.output,
+    })),
+  }))
+}
+
+async function openConv(cv) {
+  if (thinking.value) { toast('请等当前回复完成', 'error'); return }
+  try {
+    await loadConvMessages(cv.convId)
+    convId.value = cv.convId
+    showHistory.value = false
+    scrollBottom()
+  } catch (e) {
+    toast(e.message, 'error')
+  }
+}
+
+async function deleteOne(cv) {
+  const ok = await confirmDialog({ title: '删除历史对话', message: `删除这条历史对话（${cv.msgs} 条消息）？不可恢复。`, danger: true })
+  if (!ok) return
+  try {
+    await api('/ai/history/clear', { method: 'POST', body: JSON.stringify({ conv: cv.convId }) })
+    if (cv.convId === convId.value) await newChat(false)
+    convs.value = (await api('/ai/history')) || []
+    toast('已删除该历史对话', 'success')
+  } catch (e) {
+    toast(e.message, 'error')
+  }
+}
+
+async function newChat(refreshList = true) {
+  if (thinking.value) { toast('请等当前回复完成', 'error'); return }
+  try { await api('/ai/reset', { method: 'POST', body: JSON.stringify({ conv: convId.value }) }) } catch { /* ignore */ }
+  convId.value = 0
+  messages.value = []
+  ctxUsed.value = 0
+  if (refreshList) showHistory.value = false
+}
+
+async function clearChat() {
+  const hadConv = convId.value > 0
+  await newChat()
+  if (hadConv) toast('已开始新对话，原对话仍可在历史中查看', 'success')
+}
 
 async function openSettings() { showSettings.value = !showSettings.value }
 
@@ -208,18 +294,30 @@ function scrollBottom() {
 async function send(preset) {
   const text = (preset ?? draft.value).trim()
   if (!text || thinking.value) return
-  if (!enabled.value) { toast('AI 功能未配置（缺少 OPSWEB_AI_KEY）', 'error'); return }
+  if (!enabled.value) { toast('AI 功能未配置，请联系管理员在设置中填写 API Key', 'error'); return }
   draft.value = ''
   messages.value.push({ role: 'user', content: text })
   thinking.value = true
   scrollBottom()
   try {
-    const r = await api('/ai/chat', { method: 'POST', body: JSON.stringify({ message: text }) })
+    const r = await api('/ai/chat', {
+      method: 'POST',
+      body: JSON.stringify({ message: text, conv: convId.value }),
+    })
+    if (!convId.value) {
+      convId.value = r.conv || Date.now()
+      convs.value = [{ convId: convId.value, title: text, msgs: 2, lastTime: '刚刚' }, ...convs.value]
+      if (convs.value.length > 20) convs.value = convs.value.slice(0, 20)
+    } else {
+      const cv = convs.value.find(x => x.convId === convId.value)
+      if (cv) { cv.msgs = (cv.msgs || 0) + 2; cv.lastTime = '刚刚' }
+    }
     messages.value.push({
       role: 'assistant',
       content: r.reply,
       pendingCards: (r.pending || []).map(p => ({ ...p, status: '' })),
     })
+    if (r.usage?.prompt_tokens) ctxUsed.value = r.usage.prompt_tokens
   } catch (e) {
     messages.value.push({ role: 'assistant', content: ' :( ' + e.message })
   }
@@ -252,18 +350,31 @@ async function reject(p) {
     toast(e.message, 'error')
   }
 }
-
-function clearChat() {
-  api('/ai/reset', { method: 'POST' }).catch(() => {})
-  api('/ai/history/clear', { method: 'POST' }).catch(() => {})
-  messages.value = []
-}
 </script>
 
 <style scoped>
 .ai-page { display: flex; flex-direction: column; height: calc(100vh - 130px); }
 .ai-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
 .ai-head-actions { display: flex; align-items: center; gap: 8px; }
+.ai-history { margin-top: 12px; padding: 12px 16px; }
+.ai-history-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.ai-history-title-head { font-weight: 700; color: var(--accent-deep); font-size: 14px; }
+.ai-history-empty { padding: 6px 2px; font-size: 13px; }
+.ai-history-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px; border-radius: 10px;
+  border: 1px solid transparent;
+  transition: all 0.15s;
+}
+.ai-history-item:hover { background: var(--panel2); }
+.ai-history-item.active { border-color: var(--accent); background: rgba(255, 126, 182, 0.08); }
+.ai-history-main { flex: 1; cursor: pointer; min-width: 0; }
+.ai-history-title {
+  font-size: 14px; font-weight: 600; color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ai-history-meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.ai-history-del { flex-shrink: 0; padding: 5px 12px; font-size: 12px; }
 .ai-chat {
   flex: 1;
   overflow-y: auto;
@@ -335,9 +446,10 @@ function clearChat() {
 .ai-typing span:nth-child(2) { animation-delay: 0.2s; }
 .ai-typing span:nth-child(3) { animation-delay: 0.4s; }
 @keyframes ai-blink { 0%, 80%, 100% { opacity: 0.3; } 40% { opacity: 1; } }
-.ai-input-bar { display: flex; gap: 10px; margin-top: 12px; }
+.ai-input-bar { display: flex; gap: 10px; margin-top: 12px; align-items: flex-end; }
+.ai-input-wrap { flex: 1; display: flex; flex-direction: column; gap: 5px; }
 .ai-input {
-  flex: 1;
+  width: 100%;
   background: var(--panel-solid);
   border: 1.5px solid var(--border);
   border-radius: 999px;
@@ -346,8 +458,19 @@ function clearChat() {
   color: var(--text);
   outline: none;
   transition: all 0.2s;
+  box-sizing: border-box;
 }
 .ai-input:focus { border-color: var(--accent); box-shadow: 0 0 0 4px rgba(255, 126, 182, 0.14); }
+.ai-ctx { display: flex; align-items: center; gap: 8px; padding: 0 6px; }
+.ai-ctx-bar {
+  flex: 0 0 120px; height: 6px; border-radius: 999px;
+  background: var(--panel2); border: 1px solid var(--border);
+  overflow: hidden;
+}
+.ai-ctx-fill { height: 100%; background: linear-gradient(90deg, var(--accent), #b78cf7); transition: width 0.4s; }
+.ai-ctx-label { font-size: 11.5px; color: var(--muted); white-space: nowrap; }
+.ai-ctx.warn .ai-ctx-fill { background: linear-gradient(90deg, #f5a623, #f7681c); }
+.ai-ctx.warn .ai-ctx-label { color: #d9730f; font-weight: 700; }
 .ai-send { padding: 11px 22px; }
 .ai-foot { text-align: center; font-size: 12px; margin-top: 8px; }
 .ai-settings { margin-top: 12px; padding: 16px 18px; }
