@@ -11,6 +11,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"opsweb/internal/ai"
 	"opsweb/internal/collect"
 	"opsweb/internal/web"
 )
@@ -82,6 +83,26 @@ func NewRouter() *gin.Engine {
 	collect.SetMetricsDB(db)
 	collect.StartSampler(MetricsIngest)
 	collect.StartAlertChecker()
+
+	// AI assistant: OpenAI-compatible endpoint via env config + audit sink
+	ai.SetConfig(ai.Config{
+		APIKey:  os.Getenv("OPSWEB_AI_KEY"),
+		BaseURL: os.Getenv("OPSWEB_AI_BASE_URL"),
+		Model:   os.Getenv("OPSWEB_AI_MODEL"),
+	})
+	ai.SetAudit(func(ip, user, target, action, result string) {
+		auditMu.Lock()
+		defer auditMu.Unlock()
+		if f, err := os.OpenFile("/workspace/opsweb/audit.log", os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600); err == nil {
+			fmt.Fprintf(f, "%s ip=%s user=%s %s %s result=%s\n",
+				time.Now().Format("2006-01-02 15:04:05"), ip, user, target, action, result)
+			f.Close()
+		}
+		log.Printf("AUDIT ip=%s user=%s %s %s result=%s", ip, user, target, action, result)
+		if db != nil {
+			dbAuditLog(ip, target, action, result+" user="+user)
+		}
+	})
 
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
@@ -156,6 +177,13 @@ func NewRouter() *gin.Engine {
 	// account management (pgsql-backed)
 	apiGroup.POST("/account/password", changePassHandler)
 	apiGroup.GET("/audit", auditListHandler)
+
+	// AI assistant (all logged-in users; safety flow inside)
+	apiGroup.GET("/ai/status", ai.StatusHandler)
+	apiGroup.POST("/ai/chat", ai.ChatHandler)
+	apiGroup.POST("/ai/approve", ai.ApprovedHandler)
+	apiGroup.POST("/ai/reject", ai.RejectHandler)
+	apiGroup.POST("/ai/reset", ai.ResetHandler)
 	usersGroup := apiGroup.Group("/users", adminOnly)
 	usersGroup.GET("", usersListHandler)
 	usersGroup.POST("", userCreateHandler)
