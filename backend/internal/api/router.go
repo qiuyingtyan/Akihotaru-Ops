@@ -247,7 +247,7 @@ func (pgHistory) ListRaw(user string, limit int) ([]ai.HistoryRow, error) {
 	out := make([]ai.HistoryRow, 0, len(rows))
 	for _, r := range rows {
 		out = append(out, ai.HistoryRow{
-			ID: r["id"].(int64), Role: r["role"].(string),
+			ID: r["id"].(int64), Conv: r["convId"].(int64), Role: r["role"].(string),
 			Content: r["content"].(string), Cards: r["cards"].(string), Time: r["time"].(string),
 		})
 	}
