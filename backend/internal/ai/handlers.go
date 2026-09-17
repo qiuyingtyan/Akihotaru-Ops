@@ -10,6 +10,169 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// SettingsStore persists provider settings (pgsql-backed, key-value).
+type SettingsStore interface {
+	Get(key string) (string, error)
+	Set(key, value string) error
+	Delete(key string) error
+}
+
+var settings SettingsStore
+
+// SetSettingsStore installs the persistence backend (called from router).
+func SetSettingsStore(s SettingsStore) { settings = s }
+
+// LoadSettings overlays persisted settings onto the runtime config.
+// Call once at startup after SetSettingsStore.
+func LoadSettings() { loadSettings() }
+
+const (
+	setKeyAPIKey  = "ai_api_key"
+	setKeyBaseURL = "ai_base_url"
+	setKeyModel   = "ai_model"
+)
+
+// loadSettings overlays persisted settings on top of the env-derived config.
+func loadSettings() {
+	if settings == nil {
+		return
+	}
+	c := GetConfig()
+	keyVal, keyErr := settings.Get(setKeyAPIKey)
+	if keyErr == nil && keyVal != "" {
+		c.APIKey = keyVal
+		if v, err := settings.Get(setKeyBaseURL); err == nil {
+			c.BaseURL = v
+		}
+		if v, err := settings.Get(setKeyModel); err == nil {
+			c.Model = v
+		}
+	}
+	SetConfig(c)
+}
+
+// saveSettings persists the non-empty provider fields; empty fields mean
+// "fall back to env/default" and delete the stored row.
+func saveSettings(c Config) error {
+	if settings == nil {
+		return fmt.Errorf("设置存储不可用")
+	}
+	if err := settings.Set(setKeyAPIKey, c.APIKey); err != nil {
+		return err
+	}
+	if c.BaseURL == "" {
+		settings.Delete(setKeyBaseURL)
+	} else if err := settings.Set(setKeyBaseURL, c.BaseURL); err != nil {
+		return err
+	}
+	if c.Model == "" {
+		settings.Delete(setKeyModel)
+	} else if err := settings.Set(setKeyModel, c.Model); err != nil {
+		return err
+	}
+	return nil
+}
+
+// SettingsHandler: GET /api/ai/settings — admin view of current provider
+// config; the key is masked as sk-***last4.
+func SettingsHandler(c *gin.Context) {
+	if c.MustGet("username").(string) != "admin" {
+		c.JSON(http.StatusForbidden, gin.H{"code": 1, "error": "仅管理员可查看 AI 设置"})
+		return
+	}
+	c2 := GetConfig()
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": gin.H{
+		"enabled":   c2.APIKey != "",
+		"keyMasked": maskKey(c2.APIKey),
+		"hasKey":    c2.APIKey != "",
+		"baseUrl":   c2.BaseURL,
+		"model":     c2.Model,
+	}})
+}
+
+// SettingsSaveHandler: POST /api/ai/settings {apiKey?, baseUrl?, model?}.
+// Empty apiKey keeps the existing one; "-" clears the stored key.
+func SettingsSaveHandler(c *gin.Context) {
+	if c.MustGet("username").(string) != "admin" {
+		c.JSON(http.StatusForbidden, gin.H{"code": 1, "error": "仅管理员可修改 AI 设置"})
+		return
+	}
+	var req struct {
+		APIKey  string `json:"apiKey"`
+		BaseURL string `json:"baseUrl"`
+		Model   string `json:"model"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 1, "error": "参数错误"})
+		return
+	}
+	cur := GetConfig()
+	next := cur
+	req.APIKey = strings.TrimSpace(req.APIKey)
+	if req.APIKey == "-" {
+		next.APIKey = ""
+	} else if req.APIKey != "" {
+		next.APIKey = req.APIKey
+	}
+	next.BaseURL = strings.TrimSpace(req.BaseURL)
+	next.Model = strings.TrimSpace(req.Model)
+	if next.APIKey == "" {
+		SetConfig(next)
+		if settings != nil {
+			settings.Delete(setKeyAPIKey)
+			settings.Delete(setKeyBaseURL)
+			settings.Delete(setKeyModel)
+		}
+		auditf(c, "ai/settings", "clear", "OK")
+		c.JSON(http.StatusOK, gin.H{"code": 0, "data": gin.H{"enabled": false}})
+		return
+	}
+	if err := saveSettings(next); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 1, "error": "保存设置失败: " + err.Error()})
+		return
+	}
+	SetConfig(next)
+	auditf(c, "ai/settings", "update model="+next.Model+" base="+next.BaseURL, "OK")
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": gin.H{"enabled": true, "model": next.Model, "baseUrl": next.BaseURL}})
+}
+
+// SettingsTestHandler: POST /api/ai/settings/test {apiKey?, baseUrl?, model?}
+// — probes the endpoint with the given or current settings.
+func SettingsTestHandler(c *gin.Context) {
+	if c.MustGet("username").(string) != "admin" {
+		c.JSON(http.StatusForbidden, gin.H{"code": 1, "error": "仅管理员可测试 AI 连接"})
+		return
+	}
+	var req struct {
+		APIKey  string `json:"apiKey"`
+		BaseURL string `json:"baseUrl"`
+		Model   string `json:"model"`
+	}
+	_ = c.ShouldBindJSON(&req)
+	override := Config{
+		APIKey:  strings.TrimSpace(req.APIKey),
+		BaseURL: strings.TrimSpace(req.BaseURL),
+		Model:   strings.TrimSpace(req.Model),
+	}
+	if err := TestConnectivity(override); err != nil {
+		auditf(c, "ai/settings/test", "probe", "FAIL "+err.Error())
+		c.JSON(http.StatusBadRequest, gin.H{"code": 1, "error": err.Error()})
+		return
+	}
+	auditf(c, "ai/settings/test", "probe", "OK")
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": "ok"})
+}
+
+func maskKey(k string) string {
+	if k == "" {
+		return ""
+	}
+	if len(k) <= 8 {
+		return "***"
+	}
+	return k[:5] + "****" + k[len(k)-4:]
+}
+
 // AuditSink lets the ai package write to the panel's audit trail without
 // importing internal/api (avoids an import cycle).
 type AuditSink func(ip, user, target, action, result string)

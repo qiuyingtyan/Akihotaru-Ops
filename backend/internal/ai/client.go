@@ -11,23 +11,32 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 )
 
-// Config carries the LLM endpoint settings, read once at startup.
+// Config carries the LLM endpoint settings. It can be updated at runtime
+// from the assistant settings page (admin only) and persists in pgsql;
+// environment variables act as initial/fallback values.
 type Config struct {
 	APIKey  string
 	BaseURL string
 	Model   string
 }
 
-var cfg Config
+var (
+	cfgMu sync.RWMutex
+	cfg   Config
+)
 
-// SetConfig installs the provider config (called from router setup).
-func SetConfig(c Config) { cfg = c }
+// SetConfig installs the provider config (thread-safe, hot reload).
+func SetConfig(c Config) { cfgMu.Lock(); cfg = c; cfgMu.Unlock() }
+
+// GetConfig returns a snapshot of the current provider config.
+func GetConfig() Config { cfgMu.RLock(); defer cfgMu.RUnlock(); return cfg }
 
 // Enabled reports whether the assistant has an API key configured.
-func Enabled() bool { return cfg.APIKey != "" }
+func Enabled() bool { return GetConfig().APIKey != "" }
 
 // chatMessage is one entry of the OpenAI chat array.
 type chatMessage struct {
@@ -63,6 +72,7 @@ type chatRequest struct {
 	Messages    []chatMessage `json:"messages"`
 	Tools       []chatTool    `json:"tools,omitempty"`
 	Temperature float64       `json:"temperature"`
+	MaxTokens   int           `json:"max_tokens,omitempty"`
 }
 
 type chatResponse struct {
@@ -81,20 +91,31 @@ type chatResponse struct {
 
 var httpClient = &http.Client{Timeout: 180 * time.Second}
 
-// chat performs one round-trip against the OpenAI-compatible endpoint.
+// chat performs one round-trip against the OpenAI-compatible endpoint
+// using the current runtime config.
 func chat(ctx context.Context, msgs []chatMessage, tools []chatTool) (*chatResponse, error) {
-	if cfg.APIKey == "" {
-		return nil, fmt.Errorf("AI 功能未配置（缺少 OPSWEB_AI_KEY）")
+	return chatWithConfig(ctx, GetConfig(), msgs, tools, 0)
+}
+
+// chatWithConfig performs a round-trip with an explicit config and token cap.
+func chatWithConfig(ctx context.Context, conf Config, msgs []chatMessage, tools []chatTool, maxTokens int) (*chatResponse, error) {
+	if conf.APIKey == "" {
+		return nil, fmt.Errorf("AI 功能未配置（缺少 API Key）")
 	}
-	base := cfg.BaseURL
+	base := conf.BaseURL
 	if base == "" {
 		base = "https://api.deepseek.com"
 	}
+	model := conf.Model
+	if model == "" {
+		model = "deepseek-chat"
+	}
 	body, err := json.Marshal(chatRequest{
-		Model:       cfg.Model,
+		Model:       model,
 		Messages:    msgs,
 		Tools:       tools,
 		Temperature: 0.3,
+		MaxTokens:   maxTokens,
 	})
 	if err != nil {
 		return nil, err
@@ -135,4 +156,28 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return string(r[:n]) + "…"
+}
+
+// TestConnectivity sends a minimal chat request to verify the settings,
+// optionally overlaid with unsaved form values from the settings page.
+func TestConnectivity(override Config) error {
+	c := GetConfig()
+	if override.APIKey != "" {
+		c.APIKey = override.APIKey
+	}
+	if override.BaseURL != "" {
+		c.BaseURL = override.BaseURL
+	}
+	if override.Model != "" {
+		c.Model = override.Model
+	}
+	if c.APIKey == "" {
+		return fmt.Errorf("未配置 API Key")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	_, err := chatWithConfig(ctx, c, []chatMessage{{
+		Role: "user", Content: "请只回复两个字：正常",
+	}}, nil, 16)
+	return err
 }

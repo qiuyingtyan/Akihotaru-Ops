@@ -5,8 +5,35 @@
       <div class="ai-head-actions">
         <span v-if="!enabled" class="badge yellow">未配置 API Key</span>
         <span v-else class="badge green">{{ modelName || '已连接' }}</span>
+        <button v-if="isAdmin" class="btn" @click="openSettings">⚙️ 设置</button>
         <button class="btn" @click="clearChat">🗑️ 新对话</button>
       </div>
+    </div>
+
+    <div v-if="showSettings" class="card ai-settings">
+      <div class="ai-settings-title">AI 接口设置 <span class="muted">（仅管理员）</span></div>
+      <div class="ai-settings-grid">
+        <label>API Key</label>
+        <div class="ai-key-row">
+          <input
+            v-model="form.apiKey"
+            class="ai-input"
+            :type="showKey ? 'text' : 'password'"
+            :placeholder="hasKey ? `已保存 ${keyMasked}，留空则不修改，输入 - 清除` : 'sk-...'"
+          />
+          <button class="btn" @click="showKey = !showKey">{{ showKey ? '隐藏' : '显示' }}</button>
+        </div>
+        <label>接口地址</label>
+        <input v-model="form.baseUrl" class="ai-input" placeholder="https://api.deepseek.com（留空用默认）" />
+        <label>模型</label>
+        <input v-model="form.model" class="ai-input" placeholder="deepseek-chat（留空用默认）" />
+      </div>
+      <div class="ai-settings-btns">
+        <button class="btn" :disabled="testing" @click="testSettings">{{ testing ? '测试中…' : '🔌 测试连通' }}</button>
+        <button class="btn primary" :disabled="saving" @click="saveSettings">{{ saving ? '保存中…' : '保存' }}</button>
+        <button class="btn" @click="showSettings = false">收起</button>
+      </div>
+      <p class="ai-foot">Key 保存在服务器数据库中（页面仅显示打码形式）；兼容 OpenAI 接口的服务均可（DeepSeek / Qwen / GLM / Kimi 等）</p>
     </div>
 
     <div ref="chatBox" class="ai-chat card">
@@ -76,6 +103,15 @@ const enabled = ref(false)
 const modelName = ref('')
 const chatBox = ref(null)
 
+const isAdmin = ref(false)
+const showSettings = ref(false)
+const showKey = ref(false)
+const testing = ref(false)
+const saving = ref(false)
+const hasKey = ref(false)
+const keyMasked = ref('')
+const form = ref({ apiKey: '', baseUrl: '', model: '' })
+
 const suggestions = [
   '服务器现在状态怎么样？',
   '有没有异常的容器或服务？',
@@ -89,7 +125,49 @@ onMounted(async () => {
     enabled.value = s.enabled
     modelName.value = s.model
   } catch { /* ignore */ }
+  try {
+    await api('/users')
+    isAdmin.value = true
+  } catch { /* non-admin */ }
+  try {
+    const st = await api('/ai/settings')
+    hasKey.value = st.hasKey
+    keyMasked.value = st.keyMasked
+    form.value.baseUrl = st.baseUrl || ''
+    form.value.model = st.model || ''
+    if (st.enabled) enabled.value = true
+  } catch { /* non-admin */ }
 })
+
+async function openSettings() { showSettings.value = !showSettings.value }
+
+async function testSettings() {
+  testing.value = true
+  try {
+    await api('/ai/settings/test', { method: 'POST', body: JSON.stringify(form.value) })
+    toast('连接成功，AI 接口可用 ♡', 'success')
+  } catch (e) {
+    toast('连接失败: ' + e.message, 'error')
+  }
+  testing.value = false
+}
+
+async function saveSettings() {
+  saving.value = true
+  try {
+    const r = await api('/ai/settings', { method: 'POST', body: JSON.stringify(form.value) })
+    enabled.value = r.enabled
+    modelName.value = r.model || form.value.model
+    toast(r.enabled ? '已保存，AI 助手已启用 ♡' : '已清除配置', 'success')
+    form.value.apiKey = ''
+    const st = await api('/ai/settings')
+    hasKey.value = st.hasKey
+    keyMasked.value = st.keyMasked
+  } catch (e) {
+    toast(e.message, 'error')
+  }
+  saving.value = false
+}
 
 function esc(s) {
   return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -251,4 +329,18 @@ function clearChat() {
 .ai-input:focus { border-color: var(--accent); box-shadow: 0 0 0 4px rgba(255, 126, 182, 0.14); }
 .ai-send { padding: 11px 22px; }
 .ai-foot { text-align: center; font-size: 12px; margin-top: 8px; }
+.ai-settings { margin-top: 12px; padding: 16px 18px; }
+.ai-settings-title { font-weight: 700; margin-bottom: 12px; color: var(--accent-deep); }
+.ai-settings-grid {
+  display: grid;
+  grid-template-columns: 90px 1fr;
+  gap: 10px 12px;
+  align-items: center;
+}
+.ai-settings-grid label { font-size: 13px; color: var(--muted); font-weight: 600; text-align: right; }
+.ai-settings-grid .ai-input { padding: 9px 14px; }
+.ai-key-row { display: flex; gap: 8px; }
+.ai-key-row .ai-input { flex: 1; }
+.ai-settings-btns { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+.ai-settings .ai-foot { text-align: left; margin-top: 10px; }
 </style>

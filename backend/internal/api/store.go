@@ -86,7 +86,12 @@ CREATE TABLE IF NOT EXISTS ops_metrics (
 	metric TEXT NOT NULL,
 	value  DOUBLE PRECISION NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_ops_metrics_time ON ops_metrics (time DESC);`
+CREATE INDEX IF NOT EXISTS idx_ops_metrics_time ON ops_metrics (time DESC);
+CREATE TABLE IF NOT EXISTS ops_settings (
+	key        TEXT PRIMARY KEY,
+	value      TEXT NOT NULL,
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);`
 	if _, err = db.Exec(schema); err != nil {
 		return err
 	}
@@ -368,6 +373,31 @@ func dbDropSession(tok string) {
 func dbAuditLog(ip, target, action, result string) {
 	db.Exec(`INSERT INTO ops_audit (ip, target, action, result) VALUES ($1, $2, $3, $4)`,
 		ip, target, action, result)
+}
+
+// ── settings (key-value, used for AI provider config) ───────────────
+
+// dbGetSetting returns one settings value ("", nil) when missing.
+func dbGetSetting(key string) (string, error) {
+	var v string
+	err := db.QueryRow(`SELECT value FROM ops_settings WHERE key = $1`, key).Scan(&v)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return v, err
+}
+
+// dbSetSetting upserts one settings value.
+func dbSetSetting(key, value string) error {
+	_, err := db.Exec(`INSERT INTO ops_settings (key, value, updated_at) VALUES ($1, $2, now())
+		ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = now()`, key, value)
+	return err
+}
+
+// dbDeleteSetting removes one settings value.
+func dbDeleteSetting(key string) error {
+	_, err := db.Exec(`DELETE FROM ops_settings WHERE key = $1`, key)
+	return err
 }
 
 func dbRecentAudit(limit int) ([]gin.H, error) {

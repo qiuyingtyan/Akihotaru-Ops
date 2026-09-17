@@ -103,6 +103,8 @@ func NewRouter() *gin.Engine {
 			dbAuditLog(ip, target, action, result+" user="+user)
 		}
 	})
+	ai.SetSettingsStore(pgSettings{})
+	ai.LoadSettings()
 
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
@@ -184,6 +186,9 @@ func NewRouter() *gin.Engine {
 	apiGroup.POST("/ai/approve", ai.ApprovedHandler)
 	apiGroup.POST("/ai/reject", ai.RejectHandler)
 	apiGroup.POST("/ai/reset", ai.ResetHandler)
+	apiGroup.GET("/ai/settings", ai.SettingsHandler)
+	apiGroup.POST("/ai/settings", ai.SettingsSaveHandler)
+	apiGroup.POST("/ai/settings/test", ai.SettingsTestHandler)
 	usersGroup := apiGroup.Group("/users", adminOnly)
 	usersGroup.GET("", usersListHandler)
 	usersGroup.POST("", userCreateHandler)
@@ -193,3 +198,10 @@ func NewRouter() *gin.Engine {
 	web.RegisterStatic(r)
 	return r
 }
+
+// pgSettings adapts the pgsql-backed settings table to ai.SettingsStore.
+type pgSettings struct{}
+
+func (pgSettings) Get(key string) (string, error)      { return dbGetSetting(key) }
+func (pgSettings) Set(key, value string) error         { return dbSetSetting(key, value) }
+func (pgSettings) Delete(key string) error             { return dbDeleteSetting(key) }
