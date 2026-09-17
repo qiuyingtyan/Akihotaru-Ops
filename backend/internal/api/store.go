@@ -95,12 +95,15 @@ CREATE TABLE IF NOT EXISTS ops_settings (
 CREATE TABLE IF NOT EXISTS ops_chat_history (
 	id      BIGSERIAL PRIMARY KEY,
 	username TEXT NOT NULL,
+	conv_id  BIGINT NOT NULL DEFAULT 0,
 	role     TEXT NOT NULL,
 	content  TEXT NOT NULL,
 	cards    TEXT NOT NULL DEFAULT '',
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS idx_ops_chat_history_user ON ops_chat_history (username, id);`
+CREATE INDEX IF NOT EXISTS idx_ops_chat_history_user ON ops_chat_history (username, id);
+ALTER TABLE ops_chat_history ADD COLUMN IF NOT EXISTS conv_id BIGINT NOT NULL DEFAULT 0;
+CREATE INDEX IF NOT EXISTS idx_ops_chat_history_conv ON ops_chat_history (username, conv_id, id);`
 	if _, err = db.Exec(schema); err != nil {
 		return err
 	}
@@ -409,13 +412,13 @@ func dbDeleteSetting(key string) error {
 	return err
 }
 
-// ── chat history (per-user transcripts) ─────────────────────────
+// ── chat history (per-user transcripts, grouped by conversation) ──
 
-func dbHistAppend(user, role, content, cards string) (int64, error) {
+func dbHistAppend(user string, conv int64, role, content, cards string) (int64, error) {
 	var id int64
 	err := db.QueryRow(
-		`INSERT INTO ops_chat_history (username, role, content, cards) VALUES ($1, $2, $3, $4) RETURNING id`,
-		user, role, content, cards).Scan(&id)
+		`INSERT INTO ops_chat_history (username, conv_id, role, content, cards) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+		user, conv, role, content, cards).Scan(&id)
 	return id, err
 }
 
@@ -424,9 +427,39 @@ func dbHistUpdateCards(user string, id int64, cards string) error {
 	return err
 }
 
-func dbHistTrim(user string, keep int) error {
-	_, err := db.Exec(`DELETE FROM ops_chat_history WHERE username = $1 AND id NOT IN (
-		SELECT id FROM ops_chat_history WHERE username = $1 ORDER BY id DESC LIMIT $2)`, user, keep)
+// dbHistTrimConvs keeps only the newest keep conversations (by newest msg).
+func dbHistTrimConvs(user string, keep int) error {
+	_, err := db.Exec(`DELETE FROM ops_chat_history WHERE username = $1 AND conv_id > 0 AND conv_id IN (
+		SELECT conv_id FROM ops_chat_history WHERE username = $1 AND conv_id > 0
+		GROUP BY conv_id ORDER BY max(id) DESC OFFSET $2)`, user, keep)
+	return err
+}
+
+func dbHistConvs(user string) ([]gin.H, error) {
+	rows, err := db.Query(`SELECT conv_id, max(id), to_char(max(created_at), 'YYYY-MM-DD HH24:MI'), count(*)
+		FROM ops_chat_history WHERE username = $1 AND conv_id > 0
+		GROUP BY conv_id ORDER BY max(id) DESC`, user)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []gin.H
+	for rows.Next() {
+		var conv, maxID, cnt int64
+		var lastTime string
+		if err := rows.Scan(&conv, &maxID, &lastTime, &cnt); err != nil {
+			return nil, err
+		}
+		title := ""
+		_ = db.QueryRow(`SELECT content FROM ops_chat_history
+			WHERE username = $1 AND conv_id = $2 AND role = 'user' ORDER BY id LIMIT 1`, user, conv).Scan(&title)
+		out = append(out, gin.H{"convId": conv, "lastId": maxID, "title": title, "lastTime": lastTime, "msgs": cnt})
+	}
+	return out, rows.Err()
+}
+
+func dbHistClearConv(user string, conv int64) error {
+	_, err := db.Exec(`DELETE FROM ops_chat_history WHERE username = $1 AND conv_id = $2`, user, conv)
 	return err
 }
 
@@ -436,19 +469,19 @@ func dbHistClear(user string) error {
 }
 
 func dbHistList(user string, limit int) ([]gin.H, error) {
-	rows, err := db.Query(`SELECT id, role, content, cards, to_char(created_at, 'YYYY-MM-DD HH24:MI') FROM ops_chat_history WHERE username = $1 ORDER BY id`, user)
+	rows, err := db.Query(`SELECT id, conv_id, role, content, cards, to_char(created_at, 'YYYY-MM-DD HH24:MI') FROM ops_chat_history WHERE username = $1 ORDER BY id`, user)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	var all []gin.H
 	for rows.Next() {
-		var id int64
+		var id, conv int64
 		var role, content, cards, created string
-		if err := rows.Scan(&id, &role, &content, &cards, &created); err != nil {
+		if err := rows.Scan(&id, &conv, &role, &content, &cards, &created); err != nil {
 			return nil, err
 		}
-		all = append(all, gin.H{"id": id, "role": role, "content": content, "cards": cards, "time": created})
+		all = append(all, gin.H{"id": id, "convId": conv, "role": role, "content": content, "cards": cards, "time": created})
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

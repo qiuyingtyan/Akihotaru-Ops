@@ -207,28 +207,35 @@ const systemPrompt = `你是 pf3090 服务器运维面板的 AI 运维助手，�
 // ChatRequest is the /ai/chat payload.
 type ChatRequest struct {
 	Message string `json:"message"`
+	Conv    int64  `json:"conv,omitempty"`
 }
 
 // chatLoop runs at most maxToolRounds of tool-calling, returning the final
 // assistant text plus any pending approvals created along the way.
-func chatLoop(c *gin.Context, user, userMsg string) (string, []pendingAction, error) {
-	s := getSession(user)
+func chatLoop(c *gin.Context, user string, conv int64, userMsg string) (string, []pendingAction, *tokenUsage, error) {
+	s := getSession(user, conv)
 	s.append(chatMessage{Role: "user", Content: userMsg})
 
 	msgs := append([]chatMessage{{Role: "system", Content: systemPrompt}}, s.snapshot()...)
 	tools := toolDefs()
 	var created []pendingAction
+	usage := &tokenUsage{}
 	toolRound := 0
 
 	for toolRound < 8 {
 		resp, err := chat(c.Request.Context(), msgs, tools)
 		if err != nil {
-			return "", created, err
+			return "", created, usage, err
 		}
+		usage.add(tokenUsage{
+			PromptTokens:     resp.Usage.PromptTokens,
+			CompletionTokens: resp.Usage.CompletionTokens,
+			TotalTokens:      resp.Usage.TotalTokens,
+		})
 		msg := resp.Choices[0].Message
 		if len(msg.ToolCalls) == 0 {
 			s.append(chatMessage{Role: "assistant", Content: msg.Content})
-			return msg.Content, created, nil
+			return msg.Content, created, usage, nil
 		}
 
 		// persist assistant tool-call turn into session
@@ -249,7 +256,7 @@ func chatLoop(c *gin.Context, user, userMsg string) (string, []pendingAction, er
 		}
 		toolRound++
 	}
-	return "（已达单轮工具调用上限，请继续提问）", created, nil
+	return "（已达单轮工具调用上限，请继续提问）", created, usage, nil
 }
 
 // executeToolCall runs one tool call honoring the safety flow. When the
@@ -338,13 +345,13 @@ func ChatHandler(c *gin.Context) {
 	user := c.MustGet("username").(string)
 	auditf(c, "ai/chat", truncate(req.Message, 100), "ASK")
 
-	reply, pendings, err := chatLoop(c, user, req.Message)
+	reply, pendings, usage, err := chatLoop(c, user, req.Conv, req.Message)
 	if err != nil {
 		auditf(c, "ai/chat", truncate(req.Message, 100), "FAIL "+err.Error())
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 1, "error": err.Error()})
 		return
 	}
-	recordMessage(user, "user", req.Message, nil)
+	recordMessage(user, req.Conv, "user", req.Message, nil)
 	var histCards []HistoryCard
 	for _, pa := range pendings {
 		histCards = append(histCards, HistoryCard{
@@ -352,8 +359,13 @@ func ChatHandler(c *gin.Context) {
 			RiskHints: pa.RiskHints, Status: "",
 		})
 	}
-	recordMessage(user, "assistant", reply, histCards)
-	c.JSON(http.StatusOK, gin.H{"code": 0, "data": gin.H{"reply": reply, "pending": pendings}})
+	recordMessage(user, req.Conv, "assistant", reply, histCards)
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": gin.H{
+		"reply":   reply,
+		"pending": pendings,
+		"usage":   usage,
+		"conv":    req.Conv,
+	}})
 }
 
 // ApprovedHandler: POST /api/ai/approve { id } — runs the approved action.
@@ -433,10 +445,15 @@ func RejectHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": "ok"})
 }
 
-// ResetHandler: POST /api/ai/reset — clear the user's conversation.
+// ResetHandler: POST /api/ai/reset { conv? } — clear one conversation's
+// memory session (conv omitted/0: all of the user's sessions).
 func ResetHandler(c *gin.Context) {
 	user := c.MustGet("username").(string)
-	resetSession(user)
+	var req struct {
+		Conv int64 `json:"conv"`
+	}
+	_ = c.ShouldBindJSON(&req)
+	resetSession(user, req.Conv)
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": "ok"})
 }
 

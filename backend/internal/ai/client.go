@@ -83,6 +83,7 @@ type chatResponse struct {
 	Usage struct {
 		PromptTokens     int `json:"prompt_tokens"`
 		CompletionTokens int `json:"completion_tokens"`
+		TotalTokens      int `json:"total_tokens"`
 	} `json:"usage"`
 	Error *struct {
 		Message string `json:"message"`

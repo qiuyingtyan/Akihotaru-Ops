@@ -212,15 +212,32 @@ func (pgSettings) Delete(key string) error             { return dbDeleteSetting(
 // pgHistory adapts the pgsql-backed chat history table to ai.HistoryStore.
 type pgHistory struct{}
 
-func (pgHistory) Append(user, role, content, cards string) (int64, error) {
-	return dbHistAppend(user, role, content, cards)
+func (pgHistory) Append(user string, conv int64, role, content, cards string) (int64, error) {
+	return dbHistAppend(user, conv, role, content, cards)
 }
 
 func (pgHistory) UpdateCards(user string, id int64, cards string) error {
 	return dbHistUpdateCards(user, id, cards)
 }
 
-func (pgHistory) Trim(user string, keep int) error { return dbHistTrim(user, keep) }
+func (pgHistory) TrimConvs(user string, keep int) error { return dbHistTrimConvs(user, keep) }
+
+func (pgHistory) Convs(user string) ([]ai.ConvInfo, error) {
+	rows, err := dbHistConvs(user)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ai.ConvInfo, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, ai.ConvInfo{
+			ConvID: r["convId"].(int64), Title: r["title"].(string),
+			LastTime: r["lastTime"].(string), Msgs: int(r["msgs"].(int64)),
+		})
+	}
+	return out, nil
+}
+
+func (pgHistory) ClearConv(user string, conv int64) error { return dbHistClearConv(user, conv) }
 
 func (pgHistory) ListRaw(user string, limit int) ([]ai.HistoryRow, error) {
 	rows, err := dbHistList(user, limit)

@@ -4,6 +4,8 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -93,6 +95,19 @@ func randID() string {
 	return hex.EncodeToString(b)
 }
 
+// tokenUsage accumulates prompt/completion tokens across one chat round.
+type tokenUsage struct {
+	PromptTokens     int `json:"prompt_tokens"`
+	CompletionTokens int `json:"completion_tokens"`
+	TotalTokens      int `json:"total_tokens"`
+}
+
+func (u *tokenUsage) add(o tokenUsage) {
+	u.PromptTokens += o.PromptTokens
+	u.CompletionTokens += o.CompletionTokens
+	u.TotalTokens += o.TotalTokens
+}
+
 // ── chat sessions (per user, in memory, sliding TTL) ────────────────
 
 const (
@@ -114,24 +129,52 @@ type sessionStore struct {
 
 var sessions = &sessionStore{sessions: map[string]*aiSession{}}
 
-// getSession returns (creating if needed) the user's chat session.
-func getSession(user string) *aiSession {
+// sessionKey namespaces sessions by user and conversation id.
+func sessionKey(user string, conv int64) string {
+	return user + ":" + strconv.FormatInt(conv, 10)
+}
+
+// getSession returns (creating if needed) the chat session for one user
+// conversation. Memory sessions expire after sessionTTL; when expired or
+// absent the transcript is restored from the history store so 继续
+// conversation from history keeps full context.
+func getSession(user string, conv int64) *aiSession {
 	sessions.mu.Lock()
 	defer sessions.mu.Unlock()
-	s, ok := sessions.sessions[user]
+	key := sessionKey(user, conv)
+	s, ok := sessions.sessions[key]
 	if !ok || time.Since(s.lastActive) > sessionTTL {
 		s = &aiSession{lastActive: time.Now()}
-		sessions.sessions[user] = s
+		if history != nil && conv > 0 {
+			if msgs, err := listHistory(user, conv); err == nil {
+				for _, m := range msgs {
+					if m.Role == "user" {
+						s.messages = append(s.messages, chatMessage{Role: "user", Content: m.Text})
+					} else if m.Role == "assistant" && m.Text != "" {
+						s.messages = append(s.messages, chatMessage{Role: "assistant", Content: m.Text})
+					}
+				}
+			}
+		}
+		sessions.sessions[key] = s
 	}
 	s.lastActive = time.Now()
 	return s
 }
 
-// reset clears the user's conversation.
-func resetSession(user string) {
+// reset clears one conversation's memory session (conv<=0: all of user).
+func resetSession(user string, conv int64) {
 	sessions.mu.Lock()
-	delete(sessions.sessions, user)
-	sessions.mu.Unlock()
+	defer sessions.mu.Unlock()
+	if conv <= 0 {
+		for k := range sessions.sessions {
+			if strings.HasPrefix(k, user+":") {
+				delete(sessions.sessions, k)
+			}
+		}
+		return
+	}
+	delete(sessions.sessions, sessionKey(user, conv))
 }
 
 func (s *aiSession) append(m chatMessage) {
