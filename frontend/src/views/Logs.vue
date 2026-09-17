@@ -118,6 +118,12 @@ const FOLLOW_CAP = 5000
 
 const pathIsFile = computed(() => /\.[a-zA-Z0-9]+$/.test(path.value) && !path.value.endsWith('/'))
 
+function tailN() {
+  const v = Math.floor(Number(tail.value))
+  if (!Number.isFinite(v) || v < 1) return 1
+  return Math.min(v, 5000)
+}
+
 function fmtSize(n) {
   return fmtBytes(n)
 }
@@ -139,7 +145,7 @@ function startFollow() {
   listing.value = null
   followLines.value = []
   following.value = true
-  es = openSSE('/logs/follow', { path: path.value, tail: String(Math.min(tail.value || 50, 500)) }, {
+  es = openSSE('/logs/follow', { path: path.value, tail: String(Math.min(tailN(), 500)) }, {
     ready: () => {},
     history: (data) => { if (data) pushLines(followLines.value, data); autoScroll(followBox) },
     lines: (data) => { pushLines(followLines.value, data); autoScroll(followBox) },
@@ -205,7 +211,7 @@ async function loadFile() {
   err.value = ''
   listing.value = null
   try {
-    result.value = await api(`/logs/file?path=${encodeURIComponent(path.value)}&tail=${tail.value}`)
+    result.value = await api(`/logs/file?path=${encodeURIComponent(path.value)}&tail=${tailN()}`)
   } catch (e) { err.value = e.message; result.value = null }
 }
 
@@ -228,7 +234,7 @@ async function loadJournal() {
   result.value = null
   try {
     const unit = journalUnit.value === '__custom' ? customUnit.value : journalUnit.value
-    const params = new URLSearchParams({ since: journalSince.value, tail: tail.value })
+    const params = new URLSearchParams({ since: journalSince.value, tail: tailN() })
     if (unit) params.set('unit', unit)
     if (journalGrep.value) params.set('grep', journalGrep.value)
     const d = await api(`/logs/journal?${params}`)

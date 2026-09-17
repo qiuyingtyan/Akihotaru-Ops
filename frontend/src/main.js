@@ -2,29 +2,21 @@ import { createApp } from 'vue'
 import { createRouter, createWebHistory } from 'vue-router'
 import App from './App.vue'
 import { getToken } from './api.js'
-import Dashboard from './views/Dashboard.vue'
-import Containers from './views/Containers.vue'
-import Projects from './views/Projects.vue'
-import Cicd from './views/Cicd.vue'
-import Services from './views/Services.vue'
-import Logs from './views/Logs.vue'
-import Alerts from './views/Alerts.vue'
-import Users from './views/Users.vue'
-import Login from './views/Login.vue'
 import './style.css'
 
 const router = createRouter({
   history: createWebHistory(),
   routes: [
-    { path: '/', component: Dashboard },
-    { path: '/containers', component: Containers },
-    { path: '/projects', component: Projects },
-    { path: '/cicd', component: Cicd },
-    { path: '/services', component: Services },
-    { path: '/logs', component: Logs },
-    { path: '/alerts', component: Alerts },
-    { path: '/users', component: Users },
-    { path: '/login', component: Login }
+    { path: '/', component: () => import('./views/Dashboard.vue') },
+    { path: '/containers', component: () => import('./views/Containers.vue') },
+    { path: '/projects', component: () => import('./views/Projects.vue') },
+    { path: '/cicd', component: () => import('./views/Cicd.vue') },
+    { path: '/services', component: () => import('./views/Services.vue') },
+    { path: '/logs', component: () => import('./views/Logs.vue') },
+    { path: '/alerts', component: () => import('./views/Alerts.vue') },
+    { path: '/users', component: () => import('./views/Users.vue') },
+    { path: '/ai', component: () => import('./views/Ai.vue') },
+    { path: '/login', component: () => import('./views/Login.vue') }
   ]
 })
 

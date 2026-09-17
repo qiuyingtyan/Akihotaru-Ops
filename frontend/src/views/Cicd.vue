@@ -86,8 +86,16 @@ const runnerLogs = ref('')
 const tailN = ref(100)
 const pipelines = ref([])
 
+function clampTail() {
+  const v = Math.floor(Number(tailN.value))
+  if (!Number.isFinite(v) || v < 1) { tailN.value = 1; return 1 }
+  const c = Math.min(v, 5000)
+  tailN.value = c
+  return c
+}
+
 async function loadRunnerLogs() {
-  try { runnerLogs.value = await api(`/cicd/runner/logs?tail=${tailN.value}`) }
+  try { runnerLogs.value = await api(`/cicd/runner/logs?tail=${clampTail()}`) }
   catch (e) { runnerLogs.value = '获取失败: ' + e.message }
 }
 

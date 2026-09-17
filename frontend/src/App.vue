@@ -1,5 +1,6 @@
 <template>
   <div class="app-root">
+    <DialogHost />
     <template v-if="loggedOut === false">
     <aside class="sidebar">
       <div class="logo">(๑>ᴗ<๑) pf3090</div>
@@ -23,9 +24,10 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { api, clearToken, getToken } from './api.js'
+import DialogHost from './DialogHost.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -45,16 +47,19 @@ const menus = [
   { to: '/services', label: '系统服务', icon: '🖥️', on: '💫' },
   { to: '/logs', label: '日志', icon: '📄', on: '📝' },
   { to: '/alerts', label: '告警', icon: '🔔', on: '🚨' },
+  { to: '/ai', label: 'AI 助手', icon: '🤖', on: '💫' },
   { to: '/users', label: '账号', icon: '👤', on: '👑' },
 ]
 
 function logout() {
   clearToken()
+  alertsCnt.value = 0
   api('/logout', { method: 'POST' }).catch(() => {})
   router.push('/login')
   loggedOut.value = true
 }
 
+let alertTimer
 onMounted(async () => {
   if (!getToken()) return
   try {
@@ -62,11 +67,12 @@ onMounted(async () => {
     version.value = 'v' + v.version
     const a = await api('/alerts')
     alertsCnt.value = a.active.length
-    setInterval(async () => {
+    alertTimer = setInterval(async () => {
       if (!document.hidden && getToken()) {
         try { alertsCnt.value = (await api('/alerts')).active.length } catch { /* ignore */ }
       }
     }, 30000)
   } catch { /* not logged in */ }
 })
+onUnmounted(() => clearInterval(alertTimer))
 </script>

@@ -39,13 +39,15 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
-import { api } from '../api.js'
+import { api, onVisible } from '../api.js'
+import { confirmDialog, toast } from '../ui.js'
 
 const list = ref([])
 const err = ref('')
 const busy = ref('')
 const logBox = ref(null)
 let timer
+let offVisible
 
 async function load() {
   try { list.value = await api('/docker/containers'); err.value = '' }
@@ -54,13 +56,20 @@ async function load() {
 
 async function act(c, action) {
   if (action === 'stop' || action === 'remove') {
-    if (!confirm(`确定要${action === 'stop' ? '停止' : '删除'}容器 ${c.name} 吗？`)) return
+    const ok = await confirmDialog({
+      title: action === 'stop' ? '停止容器' : '删除容器',
+      message: `确定要${action === 'stop' ? '停止' : '删除'}容器 ${c.name} 吗？`,
+      danger: true,
+      okText: action === 'stop' ? '停止' : '删除'
+    })
+    if (!ok) return
   }
   busy.value = c.name
   try {
     await api(`/docker/containers/${c.name}/${action}`, { method: 'POST' })
+    toast('操作成功 ♡', 'success')
     setTimeout(load, 800)
-  } catch (e) { alert('操作失败: ' + e.message) }
+  } catch (e) { toast('操作失败: ' + e.message, 'error') }
   busy.value = ''
 }
 
@@ -68,7 +77,7 @@ async function showLogs(c) {
   try {
     const text = await api(`/docker/container/${c.name}/logs?tail=300`)
     logBox.value = { name: c.name, text, c }
-  } catch (e) { alert('获取日志失败: ' + e.message) }
+  } catch (e) { toast('获取日志失败: ' + e.message, 'error') }
 }
 
 function stateClass(s) {
@@ -78,6 +87,10 @@ function stateClass(s) {
   return 'red'
 }
 
-onMounted(() => { load(); timer = setInterval(() => { if (!document.hidden) load() }, 8000) })
-onUnmounted(() => clearInterval(timer))
+onMounted(() => {
+  load()
+  timer = setInterval(() => { if (!document.hidden) load() }, 8000)
+  offVisible = onVisible(load)
+})
+onUnmounted(() => { clearInterval(timer); offVisible() })
 </script>

@@ -42,13 +42,15 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
-import { api } from '../api.js'
+import { api, onVisible } from '../api.js'
+import { confirmDialog, toast } from '../ui.js'
 
 const list = ref([])
 const procs = ref([])
 const err = ref('')
 const busy = ref('')
 let timer
+let offVisible
 
 async function load() {
   try {
@@ -63,19 +65,36 @@ async function loadServices() {
 
 async function act(sv, action) {
   if (action === 'stop') {
-    if (!confirm(`确定要停止系统服务 ${sv.name} 吗？这可能导致相关业务不可用！`)) return
+    const ok = await confirmDialog({
+      title: '停止系统服务',
+      message: `确定要停止系统服务 ${sv.name} 吗？这可能导致相关业务不可用！`,
+      danger: true,
+      okText: '停止'
+    })
+    if (!ok) return
   }
   if (action === 'restart') {
-    if (!confirm(`确定要重启系统服务 ${sv.name} 吗？`)) return
+    const ok = await confirmDialog({
+      title: '重启系统服务',
+      message: `确定要重启系统服务 ${sv.name} 吗？`,
+      okText: '重启'
+    })
+    if (!ok) return
   }
   busy.value = sv.name
   try {
     await api(`/services/${sv.name}/${action}`, { method: 'POST' })
+    toast('操作成功 ♡', 'success')
     setTimeout(loadServices, 1000)
-  } catch (e) { alert('操作失败: ' + e.message) }
+  } catch (e) { toast('操作失败: ' + e.message, 'error') }
   busy.value = ''
 }
 
-onMounted(() => { loadServices(); load(); timer = setInterval(() => { if (!document.hidden) load() }, 5000) })
-onUnmounted(() => clearInterval(timer))
+onMounted(() => {
+  loadServices()
+  load()
+  timer = setInterval(() => { if (!document.hidden) load() }, 5000)
+  offVisible = onVisible(load)
+})
+onUnmounted(() => { clearInterval(timer); offVisible() })
 </script>

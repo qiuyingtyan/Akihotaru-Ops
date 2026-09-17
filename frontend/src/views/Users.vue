@@ -48,7 +48,7 @@
       <table class="mt">
         <thead><tr><th>时间</th><th>IP</th><th>对象</th><th>操作</th><th>结果</th></tr></thead>
         <tbody>
-          <tr v-for="(a, i) in audit" :key="i">
+          <tr v-for="a in audit" :key="a.time + '|' + a.target + '|' + a.action">
             <td class="muted" style="white-space:nowrap">{{ a.time }}</td>
             <td class="muted">{{ a.ip }}</td>
             <td>{{ a.target }}</td>
@@ -65,6 +65,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { api } from '../api.js'
+import { confirmDialog, promptDialog, toast } from '../ui.js'
 
 const users = ref([])
 const audit = ref([])
@@ -102,21 +103,35 @@ async function addUser() {
   try {
     await api('/users', { method: 'POST', body: JSON.stringify({ username: newUser.value, password: newUserPass.value }) })
     userOk.value = true
-    userMsg.value = '已添加 ✓'
+    toast('已添加 ♡', 'success')
     newUser.value = newUserPass.value = ''
     loadUsers()
   } catch (e) { userOk.value = false; userMsg.value = e.message }
 }
 
 async function delUser(name) {
-  if (!confirm(`确定删除用户「${name}」吗？`)) return
-  try { await api(`/users/${name}`, { method: 'DELETE' }); loadUsers() } catch (e) { userMsg.value = e.message }
+  const ok = await confirmDialog({
+    title: '删除用户',
+    message: `确定删除用户「${name}」吗？`,
+    danger: true,
+    okText: '删除'
+  })
+  if (!ok) return
+  try { await api(`/users/${name}`, { method: 'DELETE' }); loadUsers() } catch (e) { toast(e.message, 'error') }
 }
 
 async function resetPass(name) {
-  const p = prompt(`为「${name}」设置新密码（至少6位）：`)
+  const p = await promptDialog({
+    title: '重置密码',
+    message: `为「${name}」设置新密码（至少6位）：`,
+    inputPlaceholder: '新密码',
+    okText: '重置'
+  })
   if (!p) return
-  try { await api(`/users/${name}/password`, { method: 'POST', body: JSON.stringify({ password: p }) }); userOk.value = true; userMsg.value = `已重置 ${name} 的密码 ✓` } catch (e) { userOk.value = false; userMsg.value = e.message }
+  try {
+    await api(`/users/${name}/password`, { method: 'POST', body: JSON.stringify({ password: p }) })
+    toast(`已重置 ${name} 的密码 ♡`, 'success')
+  } catch (e) { toast(e.message, 'error') }
 }
 
 onMounted(() => { loadUsers(); loadAudit() })

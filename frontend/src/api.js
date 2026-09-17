@@ -48,3 +48,9 @@ export function pctColor(p) {
   if (p >= 75) return 'var(--yellow)'
   return 'var(--green)'
 }
+
+export function onVisible(fn) {
+  const handler = () => { if (!document.hidden) fn() }
+  document.addEventListener('visibilitychange', handler)
+  return () => document.removeEventListener('visibilitychange', handler)
+}

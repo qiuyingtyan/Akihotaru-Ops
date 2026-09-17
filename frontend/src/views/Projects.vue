@@ -40,13 +40,15 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
-import { api } from '../api.js'
+import { api, onVisible } from '../api.js'
+import { confirmDialog, toast } from '../ui.js'
 
 const list = ref([])
 const err = ref('')
 const deploying = ref('')
 const deployLog = ref({ project: '', text: '', p: null })
 let timer
+let offVisible
 
 async function load() {
   try { list.value = await api('/projects') }
@@ -54,15 +56,22 @@ async function load() {
 }
 
 async function deploy(p) {
-  if (!confirm(`确定要重新部署「${p.name}」吗？部署过程可能需要几分钟。`)) return
+  const ok = await confirmDialog({
+    title: '重新部署',
+    message: `确定要重新部署「${p.name}」吗？部署过程可能需要几分钟。`,
+    okText: '部署'
+  })
+  if (!ok) return
   deploying.value = p.name
   deployLog.value = { project: p.name, text: '部署已发起，等待输出...', p }
   try {
     const out = await api(`/projects/${encodeURIComponent(p.name)}/deploy`, { method: 'POST' })
     deployLog.value.text = out || '（无输出）部署完成'
+    toast('部署完成 ♡', 'success')
     setTimeout(load, 1500)
   } catch (e) {
     deployLog.value.text = '部署失败: ' + e.message
+    toast('部署失败: ' + e.message, 'error')
   }
   deploying.value = ''
 }
@@ -70,9 +79,13 @@ async function deploy(p) {
 async function showDeployStatus(p) {
   try {
     deployLog.value = { project: p.name, text: await api(`/projects/${encodeURIComponent(p.name)}/deploy-status`), p }
-  } catch (e) { alert('获取失败: ' + e.message) }
+  } catch (e) { toast('获取失败: ' + e.message, 'error') }
 }
 
-onMounted(() => { load(); timer = setInterval(() => { if (!document.hidden) load() }, 15000) })
-onUnmounted(() => clearInterval(timer))
+onMounted(() => {
+  load()
+  timer = setInterval(() => { if (!document.hidden) load() }, 15000)
+  offVisible = onVisible(load)
+})
+onUnmounted(() => { clearInterval(timer); offVisible() })
 </script>

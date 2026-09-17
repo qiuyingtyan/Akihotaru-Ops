@@ -71,11 +71,31 @@
           </select>
         </div>
         <div v-if="hist.cpu.length" class="mt">
-          <svg viewBox="0 0 800 180" style="width:100%;height:180px">
+          <svg viewBox="0 0 800 180" style="width:100%;height:180px" @mousemove="histHover" @mouseleave="histHoverIdx = null">
+            <g v-for="i in 4" :key="'g'+i">
+              <line :x1="0" :y1="i * 34" :x2="800" :y2="i * 34" stroke="rgba(183,148,246,0.15)" stroke-width="1" />
+              <text :x="4" :y="i * 34 - 4" font-size="10" fill="var(--muted)">{{ 100 - i * 25 }}%</text>
+            </g>
+            <g v-if="histSpan() > 86400">
+              <line v-for="t in histTicks" :key="'t'+t" :x1="histX(t)" :y1="6" :x2="histX(t)" :y2="170" stroke="rgba(183,148,246,0.12)" stroke-width="1" />
+              <text v-for="t in histTicks" :key="'tl'+t" :x="histX(t) + 4" :y="178" font-size="10" fill="var(--muted)">{{ histTickLabel(t) }}</text>
+            </g>
             <polyline :points="histPath(hist.cpu)" fill="none" stroke="#ff7eb6" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
             <polyline :points="histPath(hist.mem)" fill="none" stroke="#b794f6" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
+            <g v-if="histHoverIdx !== null && hist.cpu[histHoverIdx]">
+              <line :x1="histX(hist.cpu[histHoverIdx].t)" y1="0" :x2="histX(hist.cpu[histHoverIdx].t)" y2="180" stroke="rgba(255,126,182,0.4)" stroke-dasharray="4 3" />
+              <circle :cx="histX(hist.cpu[histHoverIdx].t)" :cy="histY(hist.cpu[histHoverIdx].v)" r="4" fill="#ff7eb6" />
+              <circle v-if="hist.mem[histHoverIdx]" :cx="histX(hist.mem[histHoverIdx].t)" :cy="histY(hist.mem[histHoverIdx].v)" r="4" fill="#b794f6" />
+            </g>
           </svg>
-          <div class="muted">🌸 CPU%　💜 内存%</div>
+          <div class="muted">
+            🌸 CPU%　💜 内存%
+            <span v-if="histHoverIdx !== null && hist.cpu[histHoverIdx]" style="margin-left:12px">
+              {{ histTimeLabel(hist.cpu[histHoverIdx].t) }}　
+              CPU {{ hist.cpu[histHoverIdx].v.toFixed(1) }}% · 
+              内存 {{ hist.mem[histHoverIdx] ? hist.mem[histHoverIdx].v.toFixed(1) : '-' }}%
+            </span>
+          </div>
         </div>
         <div v-else class="muted mt loading-tip">(っ˘ω˘ς) 采样数据累积中，稍后刷新就有曲线啦～</div>
       </div>
@@ -95,7 +115,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { api, fmtBytes, fmtUptime, pctColor } from '../api.js'
+import { api, fmtBytes, fmtUptime, pctColor, onVisible } from '../api.js'
 
 const o = ref(null)
 const disks = ref([])
@@ -104,34 +124,102 @@ const hist = ref({ cpu: [], mem: [] })
 const err = ref('')
 const days = ref(1)
 let timer
+let offVisible
 
 async function load() {
   try {
-    const [ov, dk, nt, hs] = await Promise.all([
-      api('/overview'), api('/disk'), api('/net'), api(`/load/history?days=${days.value}`)
-    ])
-    o.value = ov; disks.value = dk || []; nets.value = nt || []; hist.value = hs
+    const [ov, dk, nt] = await Promise.all([api('/overview'), api('/disk'), api('/net')])
+    o.value = ov; disks.value = dk || []; nets.value = nt || []
     err.value = ''
   } catch (e) { err.value = '加载失败: ' + e.message }
 }
 
-function changeDays() { load() }
+async function loadHistory() {
+  try {
+    hist.value = await api(`/load/history?days=${days.value}`)
+  } catch { /* 曲线加载失败不打断页面 */ }
+}
+
+function changeDays() { loadHistory() }
+
+const histHoverIdx = ref(null)
+
+function histSpan() {
+  const a = hist.value.cpu
+  if (!a || a.length < 2) return 0
+  return a[a.length - 1].t - a[0].t
+}
+
+function histX(t) {
+  const a = hist.value.cpu
+  if (!a || !a.length) return 0
+  const t0 = a[0].t, span = Math.max(histSpan(), 60)
+  return ((t - t0) / span) * 800
+}
+
+function histY(v) {
+  return 180 - (Math.min(v, 100) / 100) * 170
+}
+
+function histPath(arr) {
+  if (!arr || !arr.length) return ''
+  return arr.map(p => `${histX(p.t).toFixed(1)},${histY(p.v).toFixed(1)}`).join(' ')
+}
+
+const histTicks = computed(() => {
+  const a = hist.value.cpu
+  if (!a || a.length < 2 || histSpan() <= 86400) return []
+  const span = histSpan()
+  const step = span > 86400 * 15 ? 86400 * 5 : span > 86400 * 7 ? 86400 : 86400 / 2
+  const first = Math.ceil(a[0].t / step) * step
+  const ticks = []
+  for (let t = first; t <= a[a.length - 1].t; t += step) ticks.push(t)
+  return ticks.slice(0, 12)
+})
+
+function histTickLabel(t) {
+  const d = new Date(t * 1000)
+  const day = `${d.getMonth() + 1}/${d.getDate()}`
+  const hh = String(d.getHours()).padStart(2, '0')
+  if (histSpan() > 86400 * 7) return day
+  return `${day} ${hh}时`
+}
+
+function histTimeLabel(t) {
+  const d = new Date(t * 1000)
+  const hh = String(d.getHours()).padStart(2, '0')
+  const mm = String(d.getMinutes()).padStart(2, '0')
+  if (histSpan() > 86400) return `${d.getMonth() + 1}/${d.getDate()} ${hh}:${mm}`
+  return `${hh}:${mm}`
+}
+
+function histHover(e) {
+  const a = hist.value.cpu
+  if (!a || a.length < 2) { histHoverIdx.value = null; return }
+  const rect = e.currentTarget.getBoundingClientRect()
+  const ratio = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width))
+  const t = a[0].t + ratio * Math.max(histSpan(), 60)
+  let lo = 0, hi = a.length - 1
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1
+    if (a[mid].t < t) lo = mid + 1
+    else hi = mid
+  }
+  histHoverIdx.value = lo
+}
 
 const activeNets = computed(() =>
   (nets.value || []).filter(n => n.bytesRecv > 0 && !/^(lo|veth|br-|docker)/.test(n.name))
 )
 
-function histPath(arr) {
-  if (!arr.length) return ''
-  const t0 = arr[0].t, t1 = arr[arr.length-1].t
-  const span = Math.max(t1 - t0, 60)
-  return arr.map(p => {
-    const x = ((p.t - t0) / span) * 800
-    const y = 180 - (Math.min(p.v, 100) / 100) * 170
-    return `${x.toFixed(1)},${y.toFixed(1)}`
-  }).join(' ')
-}
-
-onMounted(() => { load(); timer = setInterval(() => { if (!document.hidden) load() }, 5000) })
-onUnmounted(() => clearInterval(timer))
+onMounted(() => {
+  load()
+  loadHistory()
+  timer = setInterval(() => { if (!document.hidden) load() }, 5000)
+  offVisible = onVisible(load)
+})
+onUnmounted(() => {
+  clearInterval(timer)
+  offVisible()
+})
 </script>

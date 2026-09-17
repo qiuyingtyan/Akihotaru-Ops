@@ -8,11 +8,11 @@
         <table v-else class="mt">
           <thead><tr><th>时间</th><th>级别</th><th>指标</th><th>当前值</th></tr></thead>
           <tbody>
-            <tr v-for="(a, i) in active" :key="i">
+            <tr v-for="a in active" :key="a.time + '|' + a.detail">
               <td class="muted">{{ fmtTime(a.time) }}</td>
               <td><span class="badge" :class="a.level === 'critical' ? 'red' : 'yellow'">{{ a.level }}</span></td>
               <td>{{ a.detail }}</td>
-              <td>{{ a.value.toFixed(1) }}</td>
+              <td>{{ fmtVal(a.value) }}</td>
             </tr>
           </tbody>
         </table>
@@ -23,12 +23,12 @@
         <table v-else class="mt">
           <thead><tr><th>时间</th><th>状态</th><th>级别</th><th>指标</th><th>值</th></tr></thead>
           <tbody>
-            <tr v-for="(a, i) in recent.slice().reverse().slice(0, 30)" :key="i">
+            <tr v-for="a in shownRecent" :key="a.time + '|' + a.detail">
               <td class="muted">{{ fmtTime(a.time) }}</td>
               <td><span class="badge" :class="a.active ? 'red' : 'green'">{{ a.active ? '触发' : '恢复' }}</span></td>
               <td>{{ a.level }}</td>
               <td>{{ a.detail }}</td>
-              <td>{{ a.value.toFixed(1) }}</td>
+              <td>{{ fmtVal(a.value) }}</td>
             </tr>
           </tbody>
         </table>
@@ -49,17 +49,24 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
-import { api } from '../api.js'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { api, onVisible } from '../api.js'
 
 const active = ref([])
 const recent = ref([])
 let timer
+let offVisible
 
 function fmtTime(t) {
   if (!t) return '-'
   const d = new Date(t)
   return `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`
+}
+
+const shownRecent = computed(() => recent.value.slice().reverse().slice(0, 30))
+
+function fmtVal(v) {
+  return v == null || !Number.isFinite(Number(v)) ? '-' : Number(v).toFixed(1)
 }
 
 async function load() {
@@ -70,6 +77,10 @@ async function load() {
   } catch { /* ignore */ }
 }
 
-onMounted(() => { load(); timer = setInterval(() => { if (!document.hidden) load() }, 30000) })
-onUnmounted(() => clearInterval(timer))
+onMounted(() => {
+  load()
+  timer = setInterval(() => { if (!document.hidden) load() }, 30000)
+  offVisible = onVisible(load)
+})
+onUnmounted(() => { clearInterval(timer); offVisible() })
 </script>
