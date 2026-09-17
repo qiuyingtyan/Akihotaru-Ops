@@ -74,8 +74,8 @@ func CoreServiceAction(name, action string) (string, error) {
 	default:
 		return "", fmt.Errorf("unsupported action: %s", action)
 	}
-	// sanitize name
-	if strings.ContainsAny(name, " ;|&$`\\\"'") {
+// sanitize name: reject shell metachars and docker flag injection
+	if strings.ContainsAny(name, " ;|&$`\\\"'") || strings.HasPrefix(name, "-") {
 		return "", fmt.Errorf("invalid service name")
 	}
 	out, err := run(30*time.Second, "sudo", "-n", "systemctl", action, name+".service")

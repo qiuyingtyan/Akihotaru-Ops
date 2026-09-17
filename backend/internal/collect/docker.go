@@ -69,7 +69,7 @@ func CoreContainerAction(name, action string) (string, error) {
 	default:
 		return "", fmt.Errorf("unsupported action: %s", action)
 	}
-	if strings.ContainsAny(name, " ;|&$`\\\"'") {
+	if strings.ContainsAny(name, " ;|&$`\\\"'") || strings.HasPrefix(name, "-") {
 		return "", fmt.Errorf("invalid container name")
 	}
 	out, err := run(30*time.Second, "docker", args...)

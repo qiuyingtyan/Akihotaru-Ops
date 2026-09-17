@@ -127,7 +127,7 @@ func chatWithConfig(ctx context.Context, conf Config, msgs []chatMessage, tools 
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
+	req.Header.Set("Authorization", "Bearer "+conf.APIKey)
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
