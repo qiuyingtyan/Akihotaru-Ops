@@ -216,7 +216,7 @@ type ChatRequest struct {
 // assistant text plus any pending approvals created along the way.
 func chatLoop(c *gin.Context, user string, conv int64, userMsg string) (string, []pendingAction, *tokenUsage, error) {
 	s := getSession(user, conv)
-	s.append(chatMessage{Role: "user", Content: userMsg})
+	s.appendUserMessage(userMsg)
 
 	msgs := append([]chatMessage{{Role: "system", Content: systemPrompt}}, s.snapshot()...)
 	tools := toolDefs()
@@ -224,7 +224,7 @@ func chatLoop(c *gin.Context, user string, conv int64, userMsg string) (string, 
 	usage := &tokenUsage{}
 	toolRound := 0
 
-	for toolRound < 8 {
+	for toolRound < maxToolRounds {
 		resp, err := chat(c.Request.Context(), msgs, tools)
 		if err != nil {
 			return "", created, usage, err
@@ -334,7 +334,8 @@ func newConvID() int64 { return time.Now().UnixMilli() }
 
 // StatusHandler reports whether the assistant is configured.
 func StatusHandler(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"code": 0, "data": gin.H{"enabled": Enabled(), "model": cfg.Model}})
+	c2 := GetConfig()
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": gin.H{"enabled": c2.APIKey != "", "model": c2.Model}})
 }
 
 // ChatHandler: POST /api/ai/chat { message }.
@@ -465,10 +466,11 @@ func aiFollowUp(c *gin.Context, user string, conv int64, s *aiSession) string {
 	return reply
 }
 
-// RejectHandler: POST /api/ai/reject { id }.
+// RejectHandler: POST /api/ai/reject { id, conv }.
 func RejectHandler(c *gin.Context) {
 	var req struct {
-		ID string `json:"id"`
+		ID   string `json:"id"`
+		Conv int64  `json:"conv"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil || req.ID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 1, "error": "参数错误"})
@@ -482,6 +484,10 @@ func RejectHandler(c *gin.Context) {
 	}
 	auditf(c, "ai/"+pa.Tool, truncate(pa.Command, 120), "REJECTED")
 	recordCardUpdate(user, pa.ID, "已拒绝", "")
+	if pa.ToolCallID != "" && req.Conv > 0 {
+		s := getSession(user, req.Conv)
+		s.ReplaceToolResult(pa.ToolCallID, "用户已拒绝该操作，未执行。请勿重复发起，等用户下一步指示。")
+	}
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": "ok"})
 }
 
