@@ -104,6 +104,7 @@ func NewRouter() *gin.Engine {
 		}
 	})
 	ai.SetSettingsStore(pgSettings{})
+	ai.SetHistoryStore(pgHistory{})
 	ai.LoadSettings()
 
 	gin.SetMode(gin.ReleaseMode)
@@ -189,6 +190,8 @@ func NewRouter() *gin.Engine {
 	apiGroup.GET("/ai/settings", ai.SettingsHandler)
 	apiGroup.POST("/ai/settings", ai.SettingsSaveHandler)
 	apiGroup.POST("/ai/settings/test", ai.SettingsTestHandler)
+	apiGroup.GET("/ai/history", ai.HistoryHandler)
+	apiGroup.POST("/ai/history/clear", ai.HistoryClearHandler)
 	usersGroup := apiGroup.Group("/users", adminOnly)
 	usersGroup.GET("", usersListHandler)
 	usersGroup.POST("", userCreateHandler)
@@ -205,3 +208,33 @@ type pgSettings struct{}
 func (pgSettings) Get(key string) (string, error)      { return dbGetSetting(key) }
 func (pgSettings) Set(key, value string) error         { return dbSetSetting(key, value) }
 func (pgSettings) Delete(key string) error             { return dbDeleteSetting(key) }
+
+// pgHistory adapts the pgsql-backed chat history table to ai.HistoryStore.
+type pgHistory struct{}
+
+func (pgHistory) Append(user, role, content, cards string) (int64, error) {
+	return dbHistAppend(user, role, content, cards)
+}
+
+func (pgHistory) UpdateCards(user string, id int64, cards string) error {
+	return dbHistUpdateCards(user, id, cards)
+}
+
+func (pgHistory) Trim(user string, keep int) error { return dbHistTrim(user, keep) }
+
+func (pgHistory) ListRaw(user string, limit int) ([]ai.HistoryRow, error) {
+	rows, err := dbHistList(user, limit)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ai.HistoryRow, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, ai.HistoryRow{
+			ID: r["id"].(int64), Role: r["role"].(string),
+			Content: r["content"].(string), Cards: r["cards"].(string), Time: r["time"].(string),
+		})
+	}
+	return out, nil
+}
+
+func (pgHistory) Clear(user string) error { return dbHistClear(user) }

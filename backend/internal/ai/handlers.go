@@ -344,6 +344,15 @@ func ChatHandler(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 1, "error": err.Error()})
 		return
 	}
+	recordMessage(user, "user", req.Message, nil)
+	var histCards []HistoryCard
+	for _, pa := range pendings {
+		histCards = append(histCards, HistoryCard{
+			ID: pa.ID, Tool: pa.Tool, Command: pa.Command, Level: pa.Level,
+			RiskHints: pa.RiskHints, Status: "",
+		})
+	}
+	recordMessage(user, "assistant", reply, histCards)
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": gin.H{"reply": reply, "pending": pendings}})
 }
 
@@ -394,6 +403,7 @@ func ApprovedHandler(c *gin.Context) {
 		result = out + "\n[错误] " + execErr.Error()
 	}
 	auditf(c, "ai/"+pa.Tool, truncate(pa.Command, 120), "APPROVED-EXEC "+bool2str(execErr == nil))
+	recordCardUpdate(user, pa.ID, "已执行", truncate(result, 12000))
 
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": gin.H{
 		"tool":    pa.Tool,
@@ -419,6 +429,7 @@ func RejectHandler(c *gin.Context) {
 		return
 	}
 	auditf(c, "ai/"+pa.Tool, truncate(pa.Command, 120), "REJECTED")
+	recordCardUpdate(user, pa.ID, "已拒绝", "")
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": "ok"})
 }
 
@@ -428,6 +439,8 @@ func ResetHandler(c *gin.Context) {
 	resetSession(user)
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": "ok"})
 }
+
+// execTimeoutFor returns the approval-execution hard timeout for a pending
 
 func execTimeoutFor(pa pendingAction) time.Duration {
 	if pa.Tool == "run_shell" {

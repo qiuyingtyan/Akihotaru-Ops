@@ -46,9 +46,10 @@
         </div>
       </div>
 
-      <div v-for="(m, i) in messages" :key="i" :class="['ai-msg', m.role]">
+      <div v-for="(m, i) in messages" :key="m.id || 'live-' + i" :class="['ai-msg', m.role]">
         <div class="ai-avatar">{{ m.role === 'user' ? '👤' : '🌸' }}</div>
         <div class="ai-bubble">
+          <div v-if="m.time" class="ai-time">{{ m.time }}</div>
           <div class="ai-text" v-html="renderText(m.content)"></div>
           <div v-if="m.pendingCards?.length" class="ai-cards">
             <div v-for="p in m.pendingCards" :key="p.id" :class="['ai-card', p.level]">
@@ -125,6 +126,23 @@ onMounted(async () => {
     enabled.value = s.enabled
     modelName.value = s.model
   } catch { /* ignore */ }
+  try {
+    const h = await api('/ai/history')
+    messages.value = (h || []).map(m => ({
+      role: m.role === 'user' ? 'user' : 'assistant',
+      content: m.text || '',
+      time: m.time,
+      pendingCards: (m.cards || []).map(cd => ({
+        id: cd.id,
+        level: cd.level === 'shell' ? 'shell' : 'write',
+        command: cd.command,
+        riskHints: cd.riskHints,
+        status: cd.status,
+        output: cd.output,
+      })),
+    }))
+    scrollBottom()
+  } catch { /* no history */ }
   try {
     await api('/users')
     isAdmin.value = true
@@ -237,6 +255,7 @@ async function reject(p) {
 
 function clearChat() {
   api('/ai/reset', { method: 'POST' }).catch(() => {})
+  api('/ai/history/clear', { method: 'POST' }).catch(() => {})
   messages.value = []
 }
 </script>
@@ -284,6 +303,8 @@ function clearChat() {
   background: var(--panel2); border-radius: 6px; padding: 1px 6px;
   font-size: 13px; color: var(--accent-deep);
 }
+.ai-time { font-size: 11px; color: var(--muted); margin-bottom: 3px; }
+.ai-msg.user .ai-time { text-align: right; }
 .ai-cards { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
 .ai-card {
   border: 1.5px solid var(--border);

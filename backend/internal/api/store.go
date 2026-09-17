@@ -91,7 +91,16 @@ CREATE TABLE IF NOT EXISTS ops_settings (
 	key        TEXT PRIMARY KEY,
 	value      TEXT NOT NULL,
 	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);`
+);
+CREATE TABLE IF NOT EXISTS ops_chat_history (
+	id      BIGSERIAL PRIMARY KEY,
+	username TEXT NOT NULL,
+	role     TEXT NOT NULL,
+	content  TEXT NOT NULL,
+	cards    TEXT NOT NULL DEFAULT '',
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_ops_chat_history_user ON ops_chat_history (username, id);`
 	if _, err = db.Exec(schema); err != nil {
 		return err
 	}
@@ -398,6 +407,56 @@ func dbSetSetting(key, value string) error {
 func dbDeleteSetting(key string) error {
 	_, err := db.Exec(`DELETE FROM ops_settings WHERE key = $1`, key)
 	return err
+}
+
+// ── chat history (per-user transcripts) ─────────────────────────
+
+func dbHistAppend(user, role, content, cards string) (int64, error) {
+	var id int64
+	err := db.QueryRow(
+		`INSERT INTO ops_chat_history (username, role, content, cards) VALUES ($1, $2, $3, $4) RETURNING id`,
+		user, role, content, cards).Scan(&id)
+	return id, err
+}
+
+func dbHistUpdateCards(user string, id int64, cards string) error {
+	_, err := db.Exec(`UPDATE ops_chat_history SET cards = $3 WHERE username = $1 AND id = $2`, user, id, cards)
+	return err
+}
+
+func dbHistTrim(user string, keep int) error {
+	_, err := db.Exec(`DELETE FROM ops_chat_history WHERE username = $1 AND id NOT IN (
+		SELECT id FROM ops_chat_history WHERE username = $1 ORDER BY id DESC LIMIT $2)`, user, keep)
+	return err
+}
+
+func dbHistClear(user string) error {
+	_, err := db.Exec(`DELETE FROM ops_chat_history WHERE username = $1`, user)
+	return err
+}
+
+func dbHistList(user string, limit int) ([]gin.H, error) {
+	rows, err := db.Query(`SELECT id, role, content, cards, to_char(created_at, 'YYYY-MM-DD HH24:MI') FROM ops_chat_history WHERE username = $1 ORDER BY id`, user)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var all []gin.H
+	for rows.Next() {
+		var id int64
+		var role, content, cards, created string
+		if err := rows.Scan(&id, &role, &content, &cards, &created); err != nil {
+			return nil, err
+		}
+		all = append(all, gin.H{"id": id, "role": role, "content": content, "cards": cards, "time": created})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(all) > limit {
+		all = all[len(all)-limit:]
+	}
+	return all, nil
 }
 
 func dbRecentAudit(limit int) ([]gin.H, error) {
