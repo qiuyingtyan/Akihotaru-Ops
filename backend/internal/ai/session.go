@@ -12,14 +12,15 @@ import (
 
 // pendingAction is a write/shell tool call awaiting user approval.
 type pendingAction struct {
-	ID        string    `json:"id"`
-	Tool      string    `json:"tool"`
-	Args      string    `json:"args"`
-	Command   string    `json:"command,omitempty"`
-	Level     string    `json:"level"`
-	RiskHints []string  `json:"riskHints,omitempty"`
-	CreatedAt time.Time `json:"createdAt"`
-	ExpiresAt time.Time `json:"expiresAt"`
+	ID         string   `json:"id"`
+	Tool       string   `json:"tool"`
+	Args       string   `json:"args"`
+	Command    string   `json:"command,omitempty"`
+	Level      string   `json:"level"`
+	RiskHints  []string `json:"riskHints,omitempty"`
+	ToolCallID string   `json:"-"`
+	CreatedAt  time.Time `json:"createdAt"`
+	ExpiresAt  time.Time `json:"expiresAt"`
 }
 
 // pendingTTL: how long an approval request stays valid.
@@ -39,19 +40,15 @@ type pendingEntry struct {
 
 var pendings = &pendingStore{entries: map[string]pendingEntry{}}
 
-// newPending registers an approval request owned by user.
-func newPending(user, tool, argsJSON, command string, level safetyLevel, hints []string) pendingAction {
+// newPending registers an approval request owned by user. toolCallID links
+// the request back to the tool message in the chat session.
+func newPending(user, tool, argsJSON, command string, level safetyLevel, hints []string, toolCallID string) pendingAction {
 	id := randID()
 	now := time.Now()
 	a := pendingAction{
-		ID:        id,
-		Tool:      tool,
-		Args:      argsJSON,
-		Command:   command,
-		Level:     level.String(),
-		RiskHints: hints,
-		CreatedAt: now,
-		ExpiresAt: now.Add(pendingTTL),
+		ID: id, Tool: tool, Args: argsJSON, Command: command,
+		Level: level.String(), RiskHints: hints, ToolCallID: toolCallID,
+		CreatedAt: now, ExpiresAt: now.Add(pendingTTL),
 	}
 	pendings.mu.Lock()
 	pendings.entries[id] = pendingEntry{action: a, user: user}
@@ -228,4 +225,20 @@ func (s *aiSession) snapshot() []chatMessage {
 	out := make([]chatMessage, len(s.messages))
 	copy(out, s.messages)
 	return out
+}
+
+// ReplaceToolResult rewrites the content of the tool message created for
+// toolCallID. Used when an approved action finishes: the waiting-for-
+// approval placeholder is replaced with the real output so the model can
+// see what happened and follow up.
+func (s *aiSession) ReplaceToolResult(toolCallID, content string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := len(s.messages) - 1; i >= 0; i-- {
+		if s.messages[i].Role == "tool" && s.messages[i].ToolCallID == toolCallID {
+			s.messages[i].Content = content
+			return true
+		}
+	}
+	return false
 }

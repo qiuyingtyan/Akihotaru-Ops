@@ -1,8 +1,10 @@
 package ai
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -290,7 +292,7 @@ func executeToolCall(c *gin.Context, user string, tc chatToolCall) (result strin
 
 	case levelWrite:
 		display := describeToolCall(name, args)
-		pa := newPending(user, name, argsRaw, display, levelWrite, nil)
+		pa := newPending(user, name, argsRaw, display, levelWrite, nil, tc.ID)
 		auditf(c, "ai/"+name, truncate(argsRaw, 80), "PENDING approval")
 		return fmt.Sprintf("该操作需要用户批准。已创建批准请求 id=%s，请告知用户在界面上确认，等待结果返回。", pa.ID), &pa
 
@@ -304,7 +306,7 @@ func executeToolCall(c *gin.Context, user string, tc chatToolCall) (result strin
 		if err := validShellBinary(cmd); err != nil {
 			return "错误: " + err.Error(), nil
 		}
-		pa := newPending(user, "run_shell", argsRaw, cmd, level, hints)
+		pa := newPending(user, "run_shell", argsRaw, cmd, level, hints, tc.ID)
 		auditf(c, "ai/shell", truncate(cmd, 120), "PENDING approval level="+level.String())
 		return fmt.Sprintf("已创建批准请求 id=%s（风险点: %s）。请告知用户在界面上确认，等待结果返回。", pa.ID, strings.Join(hints, "、")), &pa
 	}
@@ -343,6 +345,7 @@ func ChatHandler(c *gin.Context) {
 		return
 	}
 	user := c.MustGet("username").(string)
+	c.Set("convId", req.Conv)
 	auditf(c, "ai/chat", truncate(req.Message, 100), "ASK")
 
 	reply, pendings, usage, err := chatLoop(c, user, req.Conv, req.Message)
@@ -368,10 +371,11 @@ func ChatHandler(c *gin.Context) {
 	}})
 }
 
-// ApprovedHandler: POST /api/ai/approve { id } — runs the approved action.
+// ApprovedHandler: POST /api/ai/approve { id, conv } — runs the approved action.
 func ApprovedHandler(c *gin.Context) {
 	var req struct {
-		ID string `json:"id"`
+		ID   string `json:"id"`
+		Conv int64  `json:"conv"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil || req.ID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 1, "error": "参数错误"})
@@ -417,12 +421,41 @@ func ApprovedHandler(c *gin.Context) {
 	auditf(c, "ai/"+pa.Tool, truncate(pa.Command, 120), "APPROVED-EXEC "+bool2str(execErr == nil))
 	recordCardUpdate(user, pa.ID, "已执行", truncate(result, 12000))
 
+	// feed the real output back into the chat session so the model knows
+	// what happened and can follow up on its own turn
+	followUp := ""
+	if pa.ToolCallID != "" {
+		s := getSession(user, req.Conv)
+		if s.ReplaceToolResult(pa.ToolCallID, result) {
+			followUp = aiFollowUp(c, user, req.Conv, s)
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{"code": 0, "data": gin.H{
-		"tool":    pa.Tool,
-		"command": pa.Command,
-		"output":  truncate(result, 12000),
-		"ok":      execErr == nil,
+		"tool":      pa.Tool,
+		"command":   pa.Command,
+		"output":    truncate(result, 12000),
+		"ok":        execErr == nil,
+		"follow_up": followUp,
 	}})
+}
+
+// aiFollowUp asks the model for a short wrap-up after an approved action,
+// with the real tool output already in the session.
+func aiFollowUp(c *gin.Context, user string, conv int64, s *aiSession) string {
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 60*time.Second)
+	defer cancel()
+	s.append(chatMessage{Role: "user", Content: "（用户已批准并执行完成，请根据上面的工具输出简要总结结果，如有异常请提示下一步处理建议，不超过100字）"})
+	msgs := append([]chatMessage{{Role: "system", Content: systemPrompt}}, s.snapshot()...)
+	resp, err := chat(ctx, msgs, nil)
+	if err != nil {
+		log.Printf("ai follow-up: %v", err)
+		return ""
+	}
+	reply := resp.Choices[0].Message.Content
+	s.append(chatMessage{Role: "assistant", Content: reply})
+	recordMessage(user, conv, "assistant", reply, nil)
+	return reply
 }
 
 // RejectHandler: POST /api/ai/reject { id }.

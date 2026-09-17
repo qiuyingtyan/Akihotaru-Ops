@@ -104,7 +104,7 @@ func TestValidShellBinary(t *testing.T) {
 }
 
 func TestPendingTTLAndOwnership(t *testing.T) {
-	pa := newPending("alice", "container_action", `{"name":"x","action":"stop"}`, "docker stop x", levelWrite, nil)
+	pa := newPending("alice", "container_action", `{"name":"x","action":"stop"}`, "docker stop x", levelWrite, nil, "tc1")
 	if _, err := takePending("bob", pa.ID); err == nil {
 		t.Error("bob must not approve alice's request")
 	}
