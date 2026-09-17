@@ -42,7 +42,10 @@
           <pre class="log mt" ref="followBox">{{ followLines.join('\n') }}</pre>
         </div>
         <div v-else-if="result">
-          <div class="muted mt">{{ result.path }}（显示 {{ result.lines.length }} 行，文件大小 {{ fmtSize(result.size) }}，更新于 {{ result.mtime }}）</div>
+          <div class="muted mt" style="display:flex;justify-content:space-between;align-items:center">
+            <span>{{ result.path }}（显示 {{ result.lines.length }} 行，文件大小 {{ fmtSize(result.size) }}，更新于 {{ result.mtime }}）</span>
+            <button class="btn" @click="analyzeLog(result.lines)">🤖 AI 分析报错</button>
+          </div>
           <pre class="log mt">{{ result.lines.join('\n') }}</pre>
         </div>
       </template>
@@ -75,7 +78,10 @@
           <pre class="log mt" ref="jFollowBox">{{ jFollowLines.join('\n') }}</pre>
         </div>
         <div v-else-if="journalLines !== null">
-          <div class="muted mt">共 {{ journalLines.length }} 行（时间正序）</div>
+          <div class="muted mt" style="display:flex;justify-content:space-between;align-items:center">
+            <span>共 {{ journalLines.length }} 行（时间正序）</span>
+            <button class="btn" @click="analyzeLog(journalLines)">🤖 AI 分析报错</button>
+          </div>
           <pre class="log mt">{{ journalLines.join('\n') }}</pre>
         </div>
         <div v-else class="muted mt loading-tip">(๑>ᴗ<๑) 选择范围后点「查询」～</div>
@@ -88,6 +94,20 @@
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { api, fmtBytes } from '../api.js'
 import { openSSE } from '../sse.js'
+import { requestAiPrefill } from '../aiBridge.js'
+import { useRouter } from 'vue-router'
+
+const router = useRouter()
+
+function analyzeLog(lines) {
+  const text = (lines || []).slice(-200).join('\n')
+  if (!text.trim()) return
+  requestAiPrefill(
+    `帮我分析以下日志内容，找出报错和异常，解释可能的原因并给出处理建议：`,
+    text.slice(0, 8000),
+  )
+  router.push('/ai')
+}
 
 const roots = ['/var/log', '/workspace/baq-test/logs', '/workspace/szx-test/logs', '/workspace/baq-test/.deploy']
 

@@ -6,13 +6,14 @@
         <div class="stat-label">活跃告警（{{ active.length }}）</div>
         <div v-if="!active.length" class="muted mt">✧ 当前无活跃告警，服务器很乖哦～</div>
         <table v-else class="mt">
-          <thead><tr><th>时间</th><th>级别</th><th>指标</th><th>当前值</th></tr></thead>
+          <thead><tr><th>时间</th><th>级别</th><th>指标</th><th>当前值</th><th></th></tr></thead>
           <tbody>
             <tr v-for="a in active" :key="a.time + '|' + a.detail">
               <td class="muted">{{ fmtTime(a.time) }}</td>
               <td><span class="badge" :class="a.level === 'critical' ? 'red' : 'yellow'">{{ a.level }}</span></td>
               <td>{{ a.detail }}</td>
               <td>{{ fmtVal(a.value) }}</td>
+              <td><button class="btn ai-analyze-btn" @click="analyzeOne(a)">🤖 分析</button></td>
             </tr>
           </tbody>
         </table>
@@ -51,11 +52,23 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { api, onVisible } from '../api.js'
+import { requestAiPrefill } from '../aiBridge.js'
+import { useRouter } from 'vue-router'
+
+const router = useRouter()
 
 const active = ref([])
 const recent = ref([])
 let timer
 let offVisible
+
+function analyzeOne(a) {
+  requestAiPrefill(
+    `帮我分析这条服务器告警：${a.detail}，当前值 ${fmtVal(a.value)}。请检查相关指标、日志和容器状态，分析可能的原因并给出处理建议。`,
+    `告警详情：级别 ${a.level}，触发时间 ${fmtTime(a.time)}`,
+  )
+  router.push('/ai')
+}
 
 function fmtTime(t) {
   if (!t) return '-'

@@ -64,12 +64,18 @@
         <div class="ai-suggestions">
           <button v-for="q in suggestions" :key="q" class="btn" @click="send(q)">{{ q }}</button>
         </div>
+        <div class="ai-skills">
+          <button v-for="sk in skills" :key="sk.name" class="ai-skill-chip" @click="draft = sk.prompt; scrollBottom()">{{ sk.icon }} {{ sk.name }}</button>
+        </div>
       </div>
 
       <div v-for="(m, i) in messages" :key="m.id || 'live-' + i" :class="['ai-msg', m.role]">
         <div class="ai-avatar">{{ m.role === 'user' ? '👤' : '🌸' }}</div>
         <div class="ai-bubble">
-          <div v-if="m.time" class="ai-time">{{ m.time }}</div>
+          <div v-if="m.time" class="ai-time">
+            {{ m.time }}
+            <button class="ai-copy" @click="copyMsg(m)">复制</button>
+          </div>
           <div class="ai-text" v-html="renderText(m.content)"></div>
           <div v-if="m.pendingCards?.length" class="ai-cards">
             <div v-for="p in m.pendingCards" :key="p.id" :class="['ai-card', p.level]">
@@ -136,6 +142,7 @@
 import { ref, computed, nextTick, onMounted } from 'vue'
 import { api } from '../api.js'
 import { toast, confirmDialog } from '../ui.js'
+import { takeAiPrefill } from '../aiBridge.js'
 
 const messages = ref([])
 const draft = ref('')
@@ -173,6 +180,15 @@ const suggestions = [
   '磁盘使用率多少？',
 ]
 
+const skills = [
+  { icon: '🩺', name: '日常巡检', prompt: '做一次日常巡检：检查 CPU、内存、磁盘、异常容器、失败服务和未恢复告警，输出健康结论和需要处理的风险清单。' },
+  { icon: '💾', name: '磁盘排查', prompt: '排查磁盘空间：找出占用最大的目录和大文件，分析增长原因，给出安全的清理建议（不要直接删除）。' },
+  { icon: '🐳', name: '容器异常', prompt: '检查异常容器：列出重启次数多、已退出的容器，看它们的最近日志，分析报错原因。' },
+  { icon: '🔧', name: '服务异常', prompt: '检查失败的系统服务：列出失败服务，查看它们的日志报错，分析原因并给出修复建议。' },
+  { icon: '🚀', name: '发布验证', prompt: '验证最近的部署：检查相关容器运行状态、端口监听和启动日志，确认服务是否正常对外提供服务。' },
+  { icon: '📡', name: '网络连通', prompt: '探测网络连通性：检查本机到常用依赖（数据库、GitLab、外网）的连通情况和延迟。' },
+]
+
 const CTX_WINDOW = 131072
 const ctxPct = computed(() => Math.max(0, Math.round(100 - (ctxUsed.value / CTX_WINDOW) * 100)))
 const ctxUsedK = computed(() => Math.round(ctxUsed.value / 1000))
@@ -199,7 +215,19 @@ onMounted(async () => {
   try {
     convs.value = (await api('/ai/history')) || []
   } catch { /* no history */ }
+  consumePrefill()
 })
+
+function consumePrefill() {
+  const pf = takeAiPrefill()
+  if (!pf) return
+  const text = pf.ctx ? `${pf.msg}\n\n【背景信息】\n${pf.ctx}` : pf.msg
+  if (thinking.value) {
+    toast('正在处理当前问题，内容已填入输入框', 'info')
+  }
+  draft.value = text
+  if (!thinking.value) toast('已带入分析内容，确认后发送', 'info')
+}
 
 async function toggleHistory() {
   showHistory.value = !showHistory.value
@@ -299,22 +327,19 @@ async function saveSettings() {
   saving.value = false
 }
 
-function esc(s) {
-  return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-}
-
-function renderText(text) {
-  let h = esc(text)
-  h = h.replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
-  h = h.replace(/`([^`]+)`/g, '<code>$1</code>')
-  h = h.replace(/\n/g, '<br/>')
-  return h
-}
-
 function scrollBottom() {
   nextTick(() => {
     if (chatBox.value) chatBox.value.scrollTop = chatBox.value.scrollHeight
   })
+}
+
+async function copyMsg(m) {
+  try {
+    await navigator.clipboard.writeText(String(m.content ?? ''))
+    toast('已复制到剪贴板', 'success')
+  } catch {
+    toast('复制失败，请手动选择文本', 'error')
+  }
 }
 
 async function send(preset) {
@@ -394,6 +419,18 @@ async function reject(p) {
   }
   p.busy = false
 }
+
+function esc(s) {
+  return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
+function renderText(text) {
+  let h = esc(text)
+  h = h.replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
+  h = h.replace(/`([^`]+)`/g, '<code>$1</code>')
+  h = h.replace(/\n/g, '<br/>')
+  return h
+}
 </script>
 
 <style scoped>
@@ -431,6 +468,29 @@ async function reject(p) {
 .ai-welcome { text-align: center; margin: auto; max-width: 420px; }
 .ai-welcome-icon { font-size: 42px; margin-bottom: 8px; }
 .ai-suggestions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 14px; }
+.ai-skills { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 10px; }
+.ai-skill-chip {
+  border: 1.5px solid var(--border);
+  background: var(--panel-solid);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.ai-skill-chip:hover { border-color: var(--accent); color: var(--accent-deep); background: rgba(255, 126, 182, 0.08); transform: translateY(-1px); }
+.ai-copy {
+  margin-left: 8px;
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 0 2px;
+  opacity: 0.7;
+}
+.ai-copy:hover { color: var(--accent-deep); opacity: 1; }
 .ai-msg { display: flex; gap: 10px; align-items: flex-start; }
 .ai-msg.user { flex-direction: row-reverse; }
 .ai-avatar {
