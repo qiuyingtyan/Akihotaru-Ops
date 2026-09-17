@@ -16,7 +16,7 @@ Go/Gin + Vue3 单二进制运维面板，部署在 pf3090（10.8.0.2，VPN 内�
 - **日志**: 白名单目录文件 tail（禁止路径穿越，最大读 8MB）
 - **告警**: 磁盘>80%/90%、内存>80%/90%、load1>16、异常容器、failed 服务；活跃/历史事件展示；配置 `OPSWEB_WEBHOOK` 环境变量（企业微信/钉钉机器人）可启用 webhook 通知
 - **审计**: 所有容器/服务/项目操作记录到 `/workspace/opsweb/audit.log`（时间、来源 IP、对象、动作、结果）
-- **AI 助手**: 对接 OpenAI 兼容接口（DeepSeek/Qwen/GLM 等）的对话式运维。配置方式：管理员在面板「AI 助手」页点「⚙️ 设置」直接填 API Key/接口地址/模型（存 ops_settings 表热生效，支持先测试连通再保存），或用环境变量 `OPSWEB_AI_KEY`/`OPSWEB_AI_BASE_URL`（默认 `https://api.deepseek.com`）/`OPSWEB_AI_MODEL` 兑底。安全机制：只读查询（状态/日志/负载等 15 个工具）自动执行；容器/服务/部署等写操作弹卡片需用户点击批准；shell 命令三级管控——纯只读白名单（docker ps、systemctl status 等）自动执行，命中黑名单（rm -rf、关机、清防火墙、覆写认证文件等 23 类）直接硬拒绝且不可批准，其余需批准且附带风险点提示；批准请求 5 分钟过期、一次性、只能本人处理；单轮最多 8 次工具调用；AI 全部调用（含被拒/被拦截）写入审计日志和 ops_audit 表
+- **AI 助手**: 对接 OpenAI 兼容接口（DeepSeek/Qwen/GLM 等）的对话式运维。配置方式：管理员在面板「AI 助手」页点「⚙️ 设置」直接填 API Key/接口地址/模型（存 ops_settings 表热生效，支持先测试连通再保存），或用环境变量 `OPSWEB_AI_KEY`/`OPSWEB_AI_BASE_URL`（默认 `https://api.deepseek.com`）/`OPSWEB_AI_MODEL` 兑底。安全机制：只读查询（状态/日志/负载等 15 个工具）自动执行；容器/服务/部署等写操作弹卡片需用户点击批准；shell 命令三级管控——纯只读白名单（docker ps、systemctl status 等）自动执行，命中黑名单（rm -rf、关机、清防火墙、覆写认证文件等 23 类）直接硬拒绝且不可批准，其余需批准且附带风险点提示；批准请求 5 分钟过期、一次性、只能本人处理；对话历史按用户存 ops_chat_history 表（各保留最近 200 条，刷新/重开浏览器不丢，「新对话」同时清空）；单轮最多 8 次工具调用；AI 全部调用（含被拒/被拦截）写入审计日志和 ops_audit 表
 
 ## 结构
 ```
