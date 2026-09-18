@@ -238,14 +238,15 @@ func init() {
 			Name:        "get_journal",
 			Description: "查询 systemd journal 日志",
 			Params: map[string]Param{
-				"unit":  pStr("服务 unit 名，如 nginx（可选）", false),
-				"since": pStr("起始时间，如 \"2026-02-01 10:00:00\" 或 \"1 hour ago\"（可选）", false),
-				"grep":  pStr("过滤关键字（可选）", false),
-				"tail":  pInt("行数，默认 200"),
+				"unit":     pStr("服务 unit 名，如 nginx（可选）", false),
+				"since":    pStr("起始时间，如 \"2026-02-01 10:00:00\" 或 \"1 hour ago\"（可选）", false),
+				"grep":     pStr("过滤关键字（可选）", false),
+				"priority": pStr("最低日志级别：emerg/alert/crit/err/warning/notice/info/debug（可选）", false),
+				"tail":     pInt("行数，默认 200"),
 			},
 			Level: levelRead,
 			Exec: func(args map[string]any) (string, error) {
-				data, err := collect.CoreJournal(argStr(args, "unit"), argStr(args, "since"), argStr(args, "grep"), fmt.Sprintf("%d", argInt(args, "tail", 200)))
+				data, err := collect.CoreJournal(argStr(args, "unit"), argStr(args, "since"), argStr(args, "grep"), argStr(args, "priority"), fmt.Sprintf("%d", argInt(args, "tail", 200)))
 				if err != nil {
 					return "", err
 				}

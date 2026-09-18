@@ -174,6 +174,8 @@ func NewRouter() *gin.Engine {
 	apiGroup.GET("/logs/file", collect.LogFileHandler)
 	apiGroup.GET("/logs/list", collect.LogListHandler)
 	apiGroup.GET("/logs/journal", collect.JournalHandler)
+	apiGroup.GET("/logs/journal/units", collect.JournalUnitsHandler)
+	apiGroup.GET("/logs/download", collect.LogDownloadHandler)
 	apiGroup.GET("/logs/follow", collect.LogFollowHandler)
 	apiGroup.GET("/logs/journal/follow", collect.JournalFollowHandler)
 
@@ -205,9 +207,9 @@ func NewRouter() *gin.Engine {
 // pgSettings adapts the pgsql-backed settings table to ai.SettingsStore.
 type pgSettings struct{}
 
-func (pgSettings) Get(key string) (string, error)      { return dbGetSetting(key) }
-func (pgSettings) Set(key, value string) error         { return dbSetSetting(key, value) }
-func (pgSettings) Delete(key string) error             { return dbDeleteSetting(key) }
+func (pgSettings) Get(key string) (string, error) { return dbGetSetting(key) }
+func (pgSettings) Set(key, value string) error    { return dbSetSetting(key, value) }
+func (pgSettings) Delete(key string) error        { return dbDeleteSetting(key) }
 
 // pgHistory adapts the pgsql-backed chat history table to ai.HistoryStore.
 type pgHistory struct{}

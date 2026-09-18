@@ -5,12 +5,16 @@ import (
 	"compress/gzip"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -25,10 +29,27 @@ const maxLogReadBytes = 8 << 20 // read at most 8MB from the end of file
 // journal units that are hidden from the generic system log view by default
 var noisyUnits = []string{"user@1000.service", "session-c1.scope", "session-1596.scope"}
 
+// validPriorities is the journalctl priority whitelist (emerg..debug).
+var validPriorities = map[string]bool{
+	"emerg": true, "alert": true, "crit": true, "err": true,
+	"warning": true, "notice": true, "info": true, "debug": true,
+}
+
+func validPriority(p string) bool { return validPriorities[p] }
+
+// unit list cache (shared by Logs page and AI tool)
+var (
+	journalUnitsMu    sync.Mutex
+	journalUnitsCache []string
+	journalUnitsAt    time.Time
+)
+
+const journalUnitsTTL = 60 * time.Second
+
 // JournalHandler tails systemd journal via journalctl.
-// params: unit, since, grep, tail
+// params: unit, since, grep, priority, tail
 func JournalHandler(c *gin.Context) {
-	data, err := CoreJournal(c.Query("unit"), c.Query("since"), c.Query("grep"), c.DefaultQuery("tail", "200"))
+	data, err := CoreJournal(c.Query("unit"), c.Query("since"), c.Query("grep"), c.Query("priority"), c.DefaultQuery("tail", "200"))
 	if err != nil {
 		fail(c, err.Error())
 		return
@@ -36,7 +57,7 @@ func JournalHandler(c *gin.Context) {
 	ok(c, data)
 }
 
-func CoreJournal(unit, since, grep, tail string) (gin.H, error) {
+func CoreJournal(unit, since, grep, priority, tail string) (gin.H, error) {
 	if _, err := exec.LookPath("journalctl"); err != nil {
 		return nil, fmt.Errorf("journalctl 不可用")
 	}
@@ -52,6 +73,12 @@ func CoreJournal(unit, since, grep, tail string) (gin.H, error) {
 	}
 	if grep != "" {
 		args = append(args, "--grep", grep)
+	}
+	if priority != "" {
+		if !validPriority(priority) {
+			return nil, fmt.Errorf("非法的日志级别")
+		}
+		args = append(args, "-p", priority)
 	}
 	args = append(args, "--reverse")
 
@@ -73,6 +100,38 @@ func CoreJournal(unit, since, grep, tail string) (gin.H, error) {
 		}
 	}
 	return gin.H{"lines": lines, "count": len(lines)}, nil
+}
+
+// JournalUnitsHandler lists units that actually have journal entries.
+func JournalUnitsHandler(c *gin.Context) {
+	ok(c, gin.H{"units": JournalUnits()})
+}
+
+// JournalUnits returns systemd units present in the journal (60s cache).
+// Used by both the Logs page unit picker and the AI get_journal tool.
+func JournalUnits() []string {
+	journalUnitsMu.Lock()
+	defer journalUnitsMu.Unlock()
+	if time.Since(journalUnitsAt) < journalUnitsTTL && journalUnitsCache != nil {
+		return journalUnitsCache
+	}
+	units := []string{}
+	if _, err := exec.LookPath("journalctl"); err == nil {
+		out, err := exec.Command("journalctl", "--no-pager", "-q", "-o", "cat", "-F", "_SYSTEMD_UNIT").Output()
+		if err == nil {
+			for _, ln := range strings.Split(string(out), "\n") {
+				ln = strings.TrimSpace(ln)
+				if ln == "" || slices.Contains(noisyUnits, ln) {
+					continue
+				}
+				units = append(units, ln)
+			}
+		}
+	}
+	slices.Sort(units)
+	journalUnitsCache = units
+	journalUnitsAt = time.Now()
+	return units
 }
 
 func validUnitName(u string) bool {
@@ -264,4 +323,44 @@ func CoreLogFile(path, tail string) (gin.H, error) {
 		"size":  size,
 		"mtime": st.ModTime().Format("2006-01-02 15:04:05"),
 	}, nil
+}
+
+// ── file download ──────────────────────────────────────────────────
+
+const maxLogDownloadBytes = 64 << 20 // download cap: 64MB
+
+// LogDownloadHandler streams a whitelisted log file as an attachment.
+// .gz files are served as-is (name keeps .gz); others are plain text.
+func LogDownloadHandler(c *gin.Context) {
+	clean, err := resolveLogPath(c.Query("path"))
+	if err != nil {
+		fail(c, err.Error())
+		return
+	}
+	st, err := os.Stat(clean)
+	if err != nil {
+		fail(c, err.Error())
+		return
+	}
+	if st.IsDir() {
+		fail(c, "不能下载目录")
+		return
+	}
+	if st.Size() > maxLogDownloadBytes {
+		fail(c, "文件超过 64MB，请用 tail 查看或登录服务器处理")
+		return
+	}
+	c.Header("Content-Disposition", `attachment; filename="`+filepath.Base(clean)+`"`)
+	if strings.HasSuffix(clean, ".gz") {
+		c.Header("Content-Type", "application/gzip")
+	} else {
+		c.Header("Content-Type", "text/plain; charset=utf-8")
+	}
+	f, err := os.Open(clean)
+	if err != nil {
+		fail(c, err.Error())
+		return
+	}
+	defer f.Close()
+	http.ServeContent(c.Writer, c.Request, filepath.Base(clean), st.ModTime(), f)
 }
