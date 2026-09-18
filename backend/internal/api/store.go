@@ -438,10 +438,10 @@ func dbHistTrimConvs(user string, keep int) error {
 func dbHistConvs(user string) ([]gin.H, error) {
 	rows, err := db.Query(`SELECT c.conv_id, max(c.id),
 			to_char(max(c.created_at), 'YYYY-MM-DD HH24:MI'), count(*),
-			coalesce(max(c.title), '')
+			coalesce(max(t.title), '')
 		FROM ops_chat_history c
-		JOIN LATERAL (
-			SELECT content AS title FROM ops_chat_history h2
+		LEFT JOIN LATERAL (
+			SELECT h2.content AS title FROM ops_chat_history h2
 			WHERE h2.username = c.username AND h2.conv_id = c.conv_id AND h2.role = 'user'
 			ORDER BY h2.id LIMIT 1
 		) t ON true
