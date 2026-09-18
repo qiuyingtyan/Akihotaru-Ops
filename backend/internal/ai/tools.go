@@ -184,12 +184,19 @@ func init() {
 		},
 		toolSpec{
 			Name:        "get_pipelines",
-			Description: "获取最近的 CI/CD 构建任务结果",
+			Description: "获取最近的 CI/CD 构建任务结果（含失败原因）",
 			Level:       levelRead,
 			Exec: func(args map[string]any) (string, error) {
 				var b strings.Builder
 				for _, j := range collect.CorePipelines() {
 					fmt.Fprintf(&b, "#%d %s %s 用时%s 完成于 %s\n", j.JobID, j.Project, j.Status, j.Duration, j.FinishedAt)
+					if j.Status == "failed" && j.FailReason != "" {
+						reason := strings.ReplaceAll(j.FailReason, "\n", " | ")
+						if len(reason) > 400 {
+							reason = reason[:400] + "…"
+						}
+						fmt.Fprintf(&b, "  失败原因: %s\n", reason)
+					}
 				}
 				return b.String(), nil
 			},

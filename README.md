@@ -11,7 +11,7 @@ Go/Gin + Vue3 单二进制运维面板，部署在 pf3090（10.8.0.2，VPN 内�
 - **总览**: CPU/内存/负载/磁盘/网卡速率（3 秒缓存防刷），采样曲线支持 1/3/7/30 天区间，重启不丢失
 - **容器**: 全部 Docker 容器状态、启停/重启（有确认弹窗）、日志查看
 - **项目**: 办案区/三中心/vocedu/VLM 容器组成、磁盘占用、最近备份；支持一键重新部署（含部署输出查看，同一时间只允许一个部署任务）
-- **CI/CD**: GitLab/Runner/Nacos 健康状态、最近 30 条构建记录（成功/失败/耗时/完成时间，从 Runner 日志解析，60 秒缓存）、部署脚本、Runner 日志
+- **CI/CD**: GitLab/Runner/Nacos 健康状态、最近 30 条构建记录（成功/失败/耗时/完成时间/失败原因，从 Runner 日志解析并尝试拉取 GitLab Job Trace，60 秒缓存）、部署脚本、Runner 日志。失败记录悬停可查看原因，点击即可复制。配置 `OPSWEB_GITLAB_TOKEN`（GitLab Personal Access Token，需 `read_api`）后可拉取完整 job 日志作为失败原因
 - **系统服务**: 关键 systemd 服务状态与启停（stop/restart 有确认弹窗）
 - **日志**: 白名单目录文件 tail（禁止路径穿越，最大读 8MB）
 - **告警**: 磁盘>80%/90%、内存>80%/90%、load1>16、异常容器、failed 服务；活跃/历史事件展示；配置 `OPSWEB_WEBHOOK` 环境变量（企业微信/钉钉机器人）可启用 webhook 通知
