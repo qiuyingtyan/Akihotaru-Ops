@@ -18,6 +18,13 @@ variables:
   DEPLOY_HOST: "pf3090@192.168.1.19"
   APP_DIR: "/workspace/opsweb"
 
+default:
+  after_script:
+    - |
+      if [ "$CI_JOB_STATUS" = "failed" ]; then
+        echo "CI_FAIL_REASON: job=${CI_JOB_NAME} stage=${CI_JOB_STAGE} pipeline=${CI_PIPELINE_ID} sha=${CI_COMMIT_SHORT_SHA} project=${CI_PROJECT_PATH}"
+      fi
+
 build-frontend:
   stage: build
   image: node:18-bullseye
