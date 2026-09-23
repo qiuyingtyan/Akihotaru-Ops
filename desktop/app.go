@@ -19,7 +19,7 @@ func (a *App) startup(ctx context.Context) {
 }
 
 func (a *App) GetDefaultServerUrl() string {
-	return "http://192.168.1.19:9800"
+	return "http://127.0.0.1:9800"
 }
 
 func (a *App) OpenExternalBrowser(targetUrl string) {

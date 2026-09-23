@@ -33,3 +33,12 @@
   - 安全截断（基于 os.Truncate / truncate -s 0 清空日志，不破坏正在运行的进程句柄，立即 100% 释放磁盘空间）
   - 历史归档安全清理（清理 7 天前已压缩的 *.gz / *.zip / *.bak 与 /tmp 临时文件）
   - Logrotate 规则自动纳管（生成 /etc/logrotate.d/opsweb-services，采用 copytruncate、50MB 自动分卷与压缩）
+
+### 主机资产与多服务器纳管工作台 (Server Manager)
+- 路由位置：前端 `/servers`（`frontend/src/views/Servers.vue`）、资产数据逻辑（`frontend/src/utils/servers.js`）
+- 特性：
+  - 像 FinalShell 一样自由纳管多台 Linux 服务器，登录后支持优先选择与切换；
+  - 支持服务器新增、编辑、分组标签（生产/测试/边缘/集群）、Token 凭证与备注；
+  - 并发全网探活测速（基于 `/api/health` 探活与延迟毫秒感知）；
+  - 本地安全持久化，支持资产清单一键导出/导入 JSON；
+  - 侧边栏与桌面端顶栏胶囊联动，点击快速切换当前活跃管理节点。

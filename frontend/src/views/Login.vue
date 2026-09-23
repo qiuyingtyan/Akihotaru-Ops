@@ -1,9 +1,9 @@
 <template>
   <div class="login-wrap">
-    <div class="login-mascot">🍓(๑˃ᴗ˂)ﻭ</div>
+    <div class="login-mascot">✨(๑˃ᴗ˂)ﻭ</div>
     <div class="login-card">
-      <h2>pf3090 运维小屋</h2>
-      <div class="login-sub">欢迎回来～今天服务器也很乖哦 ♡</div>
+      <h2>秋萤云台 · AkiHotaru</h2>
+      <div class="login-sub">秋夜流萤，微光守候，静默自愈 ♡</div>
       <div v-if="err" class="login-err">(｡•́︿•̀｡) {{ err }}</div>
       <input v-model="username" type="text" placeholder="用户名 ♪" autocomplete="username" @keyup.enter="login" />
       <input v-model="password" type="password" placeholder="密码 ♪" autocomplete="current-password" @keyup.enter="login" />

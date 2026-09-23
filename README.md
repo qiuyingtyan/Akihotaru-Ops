@@ -1,42 +1,83 @@
-# pf3090 服务器运维面板
+# 秋萤云台 · AkiHotaru
 
-Go/Gin + Vue3 单二进制运维面板，部署在 pf3090（10.8.0.2，VPN 内网地址）。
+> **秋夜流萤，微光守候，静默自愈。**
+> 
+> *AkiHotaru* 是专为 Linux 生产集群、云原生实例与边缘物理节点打造的一站式轻量化智能运维治理中心与自愈工作台。
 
-## 访问
-- 地址: http://10.8.0.2:9800
-- 登录: 账号密码登录，账号存储在 PostgreSQL（pgsql-baq 容器，127.0.0.1:5433/opsweb 库，ops_users 表 bcrypt 哈希）。首次启动自动建表并播种 admin/123456（取自 `OPSWEB_USER`/`OPSWEB_PASS`，仅表空时生效）。登录后签发随机会话 token（7 天有效，持久化在 ops_sessions 表，服务重启不掉登录态），所有 API 走 `Authorization: Bearer` 头。可在面板「账号」页增删用户/改密，操作审计存 ops_audit 表（保留 90 天）
-- 路由: 总览 / 容器 / 项目 / CI/CD / 系统服务 / 日志 / 告警 / AI 助手
+---
 
-## 功能
-- **总览**: CPU/内存/负载/磁盘/网卡速率（3 秒缓存防刷），采样曲线支持 1/3/7/30 天区间，重启不丢失
-- **容器**: 全部 Docker 容器状态、启停/重启（有确认弹窗）、日志查看
-- **项目**: 办案区/三中心/vocedu/VLM 容器组成、磁盘占用、最近备份；支持一键重新部署（含部署输出查看，同一时间只允许一个部署任务）
-- **CI/CD**: GitLab/Runner/Nacos 健康状态、最近 30 条构建记录（成功/失败/耗时/完成时间/失败原因，从 Runner 日志解析并尝试拉取 GitLab Job Trace，60 秒缓存）、部署脚本、Runner 日志。失败记录悬停可查看原因，点击即可复制。配置 `OPSWEB_GITLAB_TOKEN`（GitLab Personal Access Token，需 `read_api`）后可拉取完整 job 日志作为失败原因
-- **系统服务**: 关键 systemd 服务状态与启停（stop/restart 有确认弹窗）
-- **日志**: 白名单目录文件 tail（禁止路径穿越，最大读 8MB）
-- **告警**: 磁盘>80%/90%、内存>80%/90%、load1>16、异常容器、failed 服务；活跃/历史事件展示；配置 `OPSWEB_WEBHOOK` 环境变量（企业微信/钉钉机器人）可启用 webhook 通知
-- **审计**: 所有容器/服务/项目操作记录到 `/workspace/opsweb/audit.log`（时间、来源 IP、对象、动作、结果）
-- **AI 助手**: 对接 OpenAI 兼容接口（DeepSeek/Qwen/GLM 等）的对话式运维。配置方式：管理员在面板「AI 助手」页点「⚙️ 设置」直接填 API Key/接口地址/模型（存 ops_settings 表热生效，支持先测试连通再保存），或用环境变量 `OPSWEB_AI_KEY`/`OPSWEB_AI_BASE_URL`（默认 `https://api.deepseek.com`）/`OPSWEB_AI_MODEL` 兑底。安全机制：只读查询（状态/日志/负载等 15 个工具）自动执行；容器/服务/部署等写操作弹卡片需用户点击批准；shell 命令三级管控——纯只读白名单（docker ps、systemctl status 等）自动执行，命中黑名单（rm -rf、关机、清防火墙、覆写认证文件等 23 类）直接硬拒绝且不可批准，其余需批准且附带风险点提示；批准请求 5 分钟过期、一次性、只能本人处理；对话按会话分组存 ops_chat_history（含 conv_id），打开页面即新对话，「📚 历史」面板可查看/继续/删除历史对话，每用户自动保留最近 20 个会话，继续历史对话自动恢复上下文；输入框下方实时显示上下文余量（按接口返回的 prompt_tokens 对照模型窗口估算）；单轮最多 8 次工具调用；AI 全部调用（含被拒/被拦截）写入审计日志和 ops_audit 表
+## 🌟 核心特性
 
-## 结构
+- 🖥️ **多服务器纳管工作台（像 FinalShell 一样自由切换）**
+  - 支持多主机资产一键添加、标签分组（生产 / 测试 / 集群 / 边缘）与毫秒级探活感知；
+  - 自由切换管理目标，支持卡片与列表视图，配置本地加密持久化。
+- 🛡️ **生产服务自愈治理与依赖编排 (App Services)**
+  - 三级启动依赖拓扑（Level 1 基础存储 ➜ Level 2 核心骨架 ➜ Level 3 上层业务）；
+  - 原生 Linux Systemd 纳管，支持断电开机自保与崩溃毫秒级拉起；
+  - 生产交付包（Unit 单元文件 + 安装脚本 + 开机自检）一键打包导出。
+- 🚨 **存储防爆守卫 (Storage Guard)**
+  - 挂载点多级容量水位雷达（85% 预警 / 90% 紧急防爆）；
+  - 全局 TOP 20 膨胀大文件扫描雷达；
+  - 基于句柄无损的 `truncate` 安全截断，不重启、不杀进程立即 100% 释放磁盘空间；
+  - 自动化 `logrotate` 规则纳管与历史压缩日志无害清理。
+- 📄 **语义分词着色日志平台 (LogViewer)**
+  - 全自动智能分词：时间戳冰蓝、异常栈帧与 Caused by、状态码与日志级别语义着色；
+  - 排版模式一键切换：智能自动换行 vs. 单行横向极客流；
+  - 内存防溢出环形缓冲区与关键词高亮追溯。
+- 🌸 **秋萤暗夜霓虹桌面客户端 (`desktop/`)**
+  - 基于 Wails v2 (Go + Vue 3) 深度打造，12MB 纯净体积，常驻内存仅约 26MB；
+  - 沉浸式无边框微光自绘顶栏、呼吸状态灯、胶囊式节点快切与系统级窗口平滑微动效；
+  - 原生桌面单实例互斥锁与托盘守护。
+- 🤖 **安全受控 AI 智能运维助手**
+  - 对接任意兼容 OpenAI / DeepSeek / 通义千问等大语言模型；
+  - 三级安全管控：只读查询自动执行、写操作交互确认卡片、危险 Shell 命令严格黑名单硬拦截。
+
+---
+
+## 📂 仓库架构
+
 ```
-backend/            Go 后端 (Gin)
-  cmd/server/       入口（-version / -token / OPSWEB_TOKEN）
-  internal/api/     路由、鉴权（仅 Authorization Header）、操作审计
-  internal/ai/      AI 助手（OpenAI 兼容客户端、工具注册表、shell 安全分类、批准流）
-  internal/collect/ 采集（/proc、docker、systemctl）、告警、流水线解析
-  internal/web/     内嵌前端 dist (go:embed)
-frontend/           Vue3 + Vite 前端源码（登录页、轮询随页面可见性暂停）
+.
+├── backend/            Go 服务端 (Gin 核心 / 采集 / 自愈 / AI / 存储守卫)
+│   ├── cmd/server/     服务端启动入口
+│   ├── internal/api/   路由、鉴权、多主机探活接口与操作审计
+│   ├── internal/ai/    AI 助手与命令安全分类引擎
+│   ├── internal/collect/ 服务依赖自愈、存储防爆、Docker 与 CI/CD 日志清洗
+│   └── internal/web/   内嵌前端产物 (go:embed)
+├── frontend/           Vue 3 + Vite 运维控制台前端源码
+└── desktop/            秋萤云台桌面端 (Wails v2 + Vue 3 桌面壳层工程)
 ```
 
-## 构建与部署
-```
-cd frontend && npm install && npm run build   # 输出到 backend/internal/web/dist
-cd backend && GOOS=linux GOARCH=amd64 go build \
-  -ldflags "-s -w -X main.version=x.y.z -X main.buildTime=$(date +%Y-%m-%d_%H:%M)" \
-  -o ../opsweb-linux-amd64 ./cmd/server
-scp opsweb-linux-amd64 pf3090@10.8.0.2:/tmp/
-ssh pf3090@10.8.0.2 'sudo systemctl stop opsweb; cp /tmp/opsweb-linux-amd64 /workspace/opsweb/opsweb && chmod +x /workspace/opsweb/opsweb; sudo systemctl start opsweb'
+---
+
+## 🚀 快速开始
+
+### 1. 服务端构建 (Linux)
+
+```bash
+# 1. 构建前端产物
+cd frontend && npm install && npm run build
+
+# 2. 构建独立单二进制可执行文件
+cd ../backend && GOOS=linux GOARCH=amd64 go build -ldflags "-s -w" -o ../akihotaru-server ./cmd/server
 ```
 
-服务器端 systemd 单元: `/etc/systemd/system/opsweb.service`（开机自启、崩溃自动重启）
+在目标 Linux 服务器执行：
+```bash
+./akihotaru-server
+```
+默认监听 `9800` 端口，首次启动将自动初始化管理员账户及数据库表结构。
+
+### 2. 桌面客户端构建 (Windows / macOS / Linux)
+
+```bash
+cd desktop
+wails build
+```
+产物将输出至 `desktop/build/bin/akihotaru.exe`，双击即可启动沉浸式控制台。
+
+---
+
+## 📜 开源协议
+
+本项目遵循 MIT 协议开源。

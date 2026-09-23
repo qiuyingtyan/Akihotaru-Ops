@@ -236,7 +236,7 @@ func notifyWebhook(events []AlertEvent, activeCnt int) {
 		}
 		b.WriteString(fmt.Sprintf("- [%s] %s %s: 当前值 %.1f\n", state, e.Detail, e.Level, e.Value))
 	}
-	text := fmt.Sprintf("【pf3090 运维告警】当前活跃告警 %d 条\n%s", activeCnt, b.String())
+	text := fmt.Sprintf("【秋萤云台运维告警】当前活跃告警 %d 条\n%s", activeCnt, b.String())
 	payload := map[string]any{"msgtype": "text", "text": map[string]string{"content": text}}
 	data, _ := json.Marshal(payload)
 	resp, err := http.Post(alerts.webhook, "application/json", bytes.NewReader(data))

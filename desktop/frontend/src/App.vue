@@ -9,13 +9,12 @@ import {
   IsWindowMaximised,
 } from '../wailsjs/go/main/App'
 
-const defaultServers = [
-  { name: '生产节点 (19 主机)', url: 'http://192.168.1.19:9800' },
-  { name: '本地节点 (Localhost)', url: 'http://127.0.0.1:9800' },
-]
+const serverList = ref([
+  { name: '本地开发节点', url: 'http://127.0.0.1:9800' },
+])
 
-const serverUrl = ref('http://192.168.1.19:9800')
-const currentUrl = ref('http://192.168.1.19:9800')
+const serverUrl = ref('http://127.0.0.1:9800')
+const currentUrl = ref('http://127.0.0.1:9800')
 const iframeRef = ref(null)
 const isLoading = ref(true)
 const isMaximised = ref(false)
@@ -23,11 +22,27 @@ const showDropdown = ref(false)
 const isEditing = ref(false)
 
 const currentNodeName = computed(() => {
-  const hit = defaultServers.find(s => s.url.replace(/\/$/, '') === currentUrl.value.replace(/\/$/, ''))
+  const cleanCurrent = currentUrl.value.replace(/\/$/, '')
+  const hit = serverList.value.find(s => s.url.replace(/\/$/, '') === cleanCurrent)
   return hit ? hit.name.split(' ')[0] : '自定义节点'
 })
 
+function loadServerList() {
+  try {
+    const raw = localStorage.getItem('akihotaru_servers_v1')
+    if (raw) {
+      const parsed = JSON.parse(raw)
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        serverList.value = parsed.map(s => ({ name: s.name, url: s.url }))
+      }
+    }
+  } catch (e) {
+    console.error(e)
+  }
+}
+
 onMounted(async () => {
+  loadServerList()
   const saved = localStorage.getItem('opsweb_desktop_server')
   if (saved) {
     serverUrl.value = saved
@@ -68,6 +83,16 @@ function navigate() {
 function selectServer(s) {
   serverUrl.value = s.url
   navigate()
+}
+
+function gotoServersManager() {
+  showDropdown.value = false
+  const base = currentUrl.value.replace(/\/+$/, '')
+  currentUrl.value = `${base}/servers`
+  if (iframeRef.value) {
+    isLoading.value = true
+    iframeRef.value.src = currentUrl.value
+  }
 }
 
 function reload() {
@@ -161,9 +186,9 @@ function handleClose() {
 
           <!-- 预设服务器下拉菜单 -->
           <div v-if="showDropdown" class="preset-dropdown">
-            <div class="dropdown-hd">预设运维节点</div>
+            <div class="dropdown-hd">已纳管主机节点</div>
             <div
-              v-for="s in defaultServers"
+              v-for="s in serverList"
               :key="s.url"
               class="dropdown-item"
               :class="{ selected: s.url === currentUrl }"
@@ -171,6 +196,9 @@ function handleClose() {
             >
               <div class="item-name">{{ s.name }}</div>
               <div class="item-url">{{ s.url }}</div>
+            </div>
+            <div class="dropdown-action" @click.stop="gotoServersManager">
+              <span>⚙️ 管理全部服务器资产...</span>
             </div>
           </div>
         </div>
@@ -468,6 +496,21 @@ html, body, #app {
 .dropdown-item.selected {
   background: rgba(251, 122, 158, 0.22);
   border-left: 2px solid #fb7a9e;
+}
+.dropdown-action {
+  margin-top: 6px;
+  padding: 6px 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 11px;
+  color: #a78bfa;
+  cursor: pointer;
+  border-radius: 4px;
+  text-align: center;
+  transition: all 0.15s ease;
+}
+.dropdown-action:hover {
+  background: rgba(167, 139, 250, 0.18);
+  color: #fff;
 }
 .item-name {
   font-size: 12px;

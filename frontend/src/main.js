@@ -8,6 +8,7 @@ const router = createRouter({
   history: createWebHistory(),
   routes: [
     { path: '/', component: () => import('./views/Dashboard.vue') },
+    { path: '/servers', component: () => import('./views/Servers.vue') },
     { path: '/containers', component: () => import('./views/Containers.vue') },
     { path: '/projects', component: () => import('./views/Projects.vue') },
     { path: '/storage', component: () => import('./views/Storage.vue') },

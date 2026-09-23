@@ -48,8 +48,8 @@ var shellBlacklistPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`\biptables\s+(-F|--flush)\b`),                             // flush firewall
 	regexp.MustCompile(`\bufw\s+(disable|reset)\b`),                               // disable firewall
 	regexp.MustCompile(`\bsystemctl\s+(disable|mask)\s+(sshd|firewalld|opsweb)\b`),
-	regexp.MustCompile(`\buser(del|mod)\s+(-r\s+)?(root|pf3090|admin)\b`),         // touch core accounts
-	regexp.MustCompile(`\bpasswd\s+(root|pf3090)\b`),
+	regexp.MustCompile(`\buser(del|mod)\s+(-r\s+)?(root|admin|ops)\b`),         // touch core accounts
+	regexp.MustCompile(`\bpasswd\s+(root|admin|ops)\b`),
 	regexp.MustCompile(`/etc/(passwd|shadow|sudoers)\b[^\n]*[><]`),                // overwrite auth files
 	regexp.MustCompile(`(>|>>)\s*/etc/(passwd|shadow|sudoers)\b`),                 // redirect onto auth files
 	regexp.MustCompile(`\bcurl\b[^\n]*\|\s*(ba)?sh\b`),                            // remote script pipe
@@ -77,8 +77,8 @@ var blockedShellReasons = map[string]string{
 	`\biptables\s+(-F|--flush)\b`:                                    "清空防火墙规则",
 	`\bufw\s+(disable|reset)\b`:                                      "关闭防火墙",
 	`\bsystemctl\s+(disable|mask)\s+(sshd|firewalld|opsweb)\b`:       "禁用关键系统服务",
-	`\buser(del|mod)\s+(-r\s+)?(root|pf3090|admin)\b`:                "操作核心账号",
-	`\bpasswd\s+(root|pf3090)\b`:                                     "修改核心账号密码",
+	`\buser(del|mod)\s+(-r\s+)?(root|admin|ops)\b`:                "操作核心账号",
+	`\bpasswd\s+(root|admin|ops)\b`:                                     "修改核心账号密码",
 	`/etc/(passwd|shadow|sudoers)\b[^\n]*[><]`:                       "覆写认证文件",
 	`(>|>>)\s*/etc/(passwd|shadow|sudoers)\b`:                       "覆写认证文件",
 	`\b(docker|kubectl)\s+(system\s+prune[^-\n]*-[a-zA-Z]*a)`:        "全量清理容器/镜像",

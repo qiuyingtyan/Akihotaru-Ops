@@ -195,7 +195,7 @@ func auditf(c *gin.Context, target, action, result string) {
 }
 
 // systemPrompt anchors the assistant's identity and safety contract.
-const systemPrompt = `你是 pf3090 服务器运维面板的 AI 运维助手，帮助用户查看和管理这台 Linux 服务器（运行 Docker 容器与 systemd 服务，承载多个业务项目）。
+const systemPrompt = `你是秋萤云台（AkiHotaru）的 AI 智能运维助手，帮助用户查看和管理 Linux 服务器（运行容器与 systemd 服务，承载业务项目与灾备自愈）。
 
 行为准则：
 1. 回答使用简体中文，简洁专业，关键数值用加粗。
