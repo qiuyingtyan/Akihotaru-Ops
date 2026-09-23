@@ -8,7 +8,8 @@
 #   VERIFY_USER / VERIFY_PASS - verify 阶段登录拿会话 token 用
 
 stages:
-  - build
+  - build-frontend
+  - build-backend
   - deploy
   - verify
 
@@ -26,7 +27,7 @@ default:
       fi
 
 build-frontend:
-  stage: build
+  stage: build-frontend
   image: node:18-bullseye
   cache:
     key: opsweb-npm
@@ -42,8 +43,13 @@ build-frontend:
     expire_in: 1 hour
 
 build-backend:
-  stage: build
+  stage: build-backend
   image: golang:1.24-alpine
+  dependencies:
+    - build-frontend
+  needs:
+    - job: build-frontend
+      artifacts: true
   cache:
     key: opsweb-go
     paths:
@@ -65,6 +71,11 @@ build-backend:
 deploy:
   stage: deploy
   image: alpine:3.20
+  dependencies:
+    - build-backend
+  needs:
+    - job: build-backend
+      artifacts: true
   script:
     - apk add --no-cache openssh-client >/dev/null
     - chmod 600 opsweb-linux-amd64
