@@ -83,7 +83,7 @@
             <span>Job #{{ tip.job.jobId }} 失败原因</span>
             <button class="btn" @click.stop="copyFailReason(tip.job)">复制</button>
           </div>
-          <pre class="ci-fail-tip-body">{{ failText(tip.job) }}</pre>
+          <pre class="ci-fail-tip-body" v-html="formatFailReasonHtml(failText(tip.job))"></pre>
         </div>
       </Teleport>
 
@@ -132,10 +132,10 @@
                 <span v-if="item.jobId" class="runner-item-chip job-chip">Job #{{ item.jobId }}</span>
                 <span v-if="item.project" class="runner-item-chip proj-chip">{{ item.project }}</span>
                 <span v-if="item.duration" class="runner-item-chip dur-chip">⏱ {{ item.duration }}</span>
-                <span class="runner-item-head" v-html="highlightKw(item.headline)"></span>
+                <span class="runner-item-head" v-html="renderHeadline(item.headline)"></span>
               </div>
               <div v-if="item.details" class="runner-item-meta">
-                <span v-html="highlightKw(item.details)"></span>
+                <span v-html="renderDetails(item.details)"></span>
               </div>
             </div>
           </div>
@@ -149,8 +149,7 @@
               v-for="(line, idx) in filteredRawLines"
               :key="idx"
               class="runner-raw-line"
-              :class="getTermLineClass(line)"
-              v-html="highlightKw(line)"
+              v-html="renderTerminalLine(line)"
             ></div>
           </div>
         </div>
@@ -385,27 +384,103 @@ const filteredRawLines = computed(() => {
 
 const escMap = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }
 function escHtml(s) {
-  return String(s).replace(/[&<>"]/g, c => escMap[c])
+  return String(s || '').replace(/[&<>"]/g, c => escMap[c])
 }
 
-function highlightKw(str) {
-  if (!str) return ''
-  const safe = escHtml(str)
-  if (!logKw.value.trim()) return safe
-  try {
-    const k = escHtml(logKw.value.trim()).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    return safe.replace(new RegExp(k, 'gi'), m => `<mark class="kw-hit">${m}</mark>`)
-  } catch {
-    return safe
+const tokenPattern = /(Caused by:[^\n\r]*|\bat\s+[a-zA-Z0-9_$.]+\([^\)]*\)|\b(?:error|failure_reason)=(?:&quot;.*?&quot;|"[^"]*"|\S+)|\bduration_s=[0-9.]+(?:s)?|\bjob=\d+|\b(?:job-status|status)=(?:&quot;.*?&quot;|"[^"]*"|\S+)|\bproject_full_path=(?:&quot;.*?&quot;|"[^"]*"|\S+)|\bJob succeeded\b|\bJob failed\b|\b(?:ERROR|FATAL|PANIC):?[^\s]*|\b(?:WARNING|WARN):?[^\s]*|\b[a-zA-Z0-9_.]*(?:Exception|Error|Failure):?[^\s]*|\b[a-zA-Z_][a-zA-Z0-9_-]*=(?:&quot;.*?&quot;|"[^"]*"|\S+))/gi
+
+function formatTokens(rawEscaped) {
+  return rawEscaped.replace(tokenPattern, (match) => {
+    const m = match.toLowerCase()
+    if (m.startsWith('caused by:')) {
+      return `<span class="hl-cause">${match}</span>`
+    }
+    if (m.startsWith('at ') && m.includes('(')) {
+      return `<span class="hl-stack">${match}</span>`
+    }
+    if (m.startsWith('error=') || m.startsWith('failure_reason=')) {
+      return `<span class="hl-err-kv">${match}</span>`
+    }
+    if (m.startsWith('duration_s=')) {
+      return `<span class="hl-dur-kv">${match}</span>`
+    }
+    if (m.startsWith('job=')) {
+      return `<span class="hl-job-kv">${match}</span>`
+    }
+    if (m.startsWith('job-status=') || m.startsWith('status=')) {
+      if (m.includes('success') || m.includes('200')) return `<span class="hl-succ-kv">${match}</span>`
+      if (m.includes('fail') || m.includes('err')) return `<span class="hl-fail-kv">${match}</span>`
+      return `<span class="hl-status-kv">${match}</span>`
+    }
+    if (m.startsWith('project_full_path=')) {
+      return `<span class="hl-proj-kv">${match}</span>`
+    }
+    if (m === 'job succeeded') {
+      return `<span class="hl-succ">${match}</span>`
+    }
+    if (m === 'job failed') {
+      return `<span class="hl-fail">${match}</span>`
+    }
+    if (m.startsWith('error') || m.startsWith('fatal') || m.startsWith('panic')) {
+      return `<span class="hl-err-lbl">${match}</span>`
+    }
+    if (m.startsWith('warning') || m.startsWith('warn')) {
+      return `<span class="hl-warn-lbl">${match}</span>`
+    }
+    if (m.endsWith('exception') || m.endsWith('error') || m.endsWith('failure') || m.includes('exception:') || m.includes('error:')) {
+      return `<span class="hl-exc">${match}</span>`
+    }
+    if (match.includes('=')) {
+      const eq = match.indexOf('=')
+      const k = match.slice(0, eq)
+      const v = match.slice(eq + 1)
+      return `<span class="hl-k">${k}</span>=<span class="hl-v">${v}</span>`
+    }
+    return match
+  })
+}
+
+function applyKeyword(html, kw) {
+  if (!kw || !kw.trim()) return html
+  const escKw = escHtml(kw.trim()).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const re = new RegExp(`(${escKw})`, 'gi')
+  const parts = html.split(/(<[^>]+>)/g)
+  return parts.map(p => {
+    if (p.startsWith('<') && p.endsWith('>')) return p
+    return p.replace(re, '<mark class="kw-hit">$1</mark>')
+  }).join('')
+}
+
+function renderTerminalLine(line) {
+  if (!line) return ''
+  const raw = escHtml(line)
+  let timeHtml = ''
+  let body = raw
+  const tsM = raw.match(/^(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?)\s+/)
+  if (tsM) {
+    timeHtml = `<span class="hl-time">${tsM[1]}</span> `
+    body = raw.slice(tsM[0].length)
   }
+  const tokenized = timeHtml + formatTokens(body)
+  return applyKeyword(tokenized, logKw.value)
 }
 
-function getTermLineClass(line) {
-  if (/\b(error|fatal|panic)\b/i.test(line) || (/failed/i.test(line) && !/checking for jobs/i.test(line))) return 'term-err'
-  if (/\b(warning|warn)\b/i.test(line)) return 'term-warn'
-  if (/job succeeded/i.test(line)) return 'term-succ'
-  if (/\bjob=\d+\b/i.test(line)) return 'term-job'
-  return ''
+function renderDetails(details) {
+  if (!details) return ''
+  const tokenized = formatTokens(escHtml(details))
+  return applyKeyword(tokenized, logKw.value)
+}
+
+function renderHeadline(headline) {
+  if (!headline) return ''
+  const tokenized = formatTokens(escHtml(headline))
+  return applyKeyword(tokenized, logKw.value)
+}
+
+function formatFailReasonHtml(text) {
+  if (!text) return ''
+  const tokenized = formatTokens(escHtml(text))
+  return applyKeyword(tokenized, logKw.value)
 }
 
 async function copyAllRunnerLogs() {
@@ -689,5 +764,116 @@ onUnmounted(() => clearTimeout(hideTimer))
   color: var(--text);
   background: #fffafc;
   user-select: text;
+}
+
+.hl-time {
+  color: #38bdf8;
+  font-family: Consolas, "JetBrains Mono", monospace;
+  font-size: 11px;
+  font-weight: 600;
+}
+.hl-cause {
+  color: #ff3366 !important;
+  background: rgba(255, 51, 102, 0.16);
+  border: 1px solid rgba(255, 51, 102, 0.35);
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-weight: 700;
+  display: inline-block;
+}
+.hl-stack {
+  color: #94a3b8;
+  font-style: italic;
+  opacity: 0.88;
+}
+.hl-exc {
+  color: #f43f5e;
+  font-weight: 700;
+}
+.hl-succ {
+  color: #4ade80;
+  font-weight: 700;
+  background: rgba(74, 222, 128, 0.15);
+  padding: 0 4px;
+  border-radius: 3px;
+}
+.hl-fail {
+  color: #f43f5e;
+  font-weight: 700;
+  background: rgba(244, 63, 94, 0.18);
+  padding: 0 4px;
+  border-radius: 3px;
+}
+.hl-err-lbl {
+  color: #f87171;
+  font-weight: 700;
+}
+.hl-warn-lbl {
+  color: #fbbf24;
+  font-weight: 700;
+}
+.hl-err-kv {
+  color: #fda4af;
+  font-weight: 600;
+}
+.hl-dur-kv {
+  color: #fde047;
+  font-weight: 600;
+}
+.hl-job-kv {
+  color: #c084fc;
+  font-weight: 700;
+}
+.hl-succ-kv {
+  color: #86efac;
+  font-weight: 600;
+}
+.hl-fail-kv {
+  color: #fb7185;
+  font-weight: 600;
+}
+.hl-status-kv {
+  color: #93c5fd;
+}
+.hl-proj-kv {
+  color: #67e8f9;
+  font-weight: 500;
+}
+.hl-k {
+  color: #94a3b8;
+}
+.hl-v {
+  color: #e2e8f0;
+}
+
+.ci-fail-tip-body .hl-cause {
+  display: block;
+  margin: 4px 0;
+  padding: 4px 8px;
+  background: #fff1f2;
+  border-left: 3px solid #f43f5e;
+  border-radius: 4px;
+  color: #be123c;
+  font-weight: 700;
+}
+.ci-fail-tip-body .hl-time { color: #0284c7; }
+.ci-fail-tip-body .hl-stack { color: #64748b; font-style: italic; }
+.ci-fail-tip-body .hl-k { color: #64748b; }
+.ci-fail-tip-body .hl-v { color: #1e293b; }
+
+.runner-item-meta .hl-k { color: #64748b; }
+.runner-item-meta .hl-v { color: #1e293b; }
+.runner-item-meta .hl-err-kv { color: #e11d48; font-weight: 700; }
+.runner-item-meta .hl-dur-kv { color: #b45309; font-weight: 600; }
+.runner-item-meta .hl-job-kv { color: #7c3aed; font-weight: 700; }
+.runner-item-meta .hl-succ-kv { color: #15803d; font-weight: 600; }
+.runner-item-meta .hl-fail-kv { color: #be123c; font-weight: 600; }
+.runner-item-meta .hl-cause { background: #ffe4e6; border-color: #fecdd3; color: #be123c; }
+
+.kw-hit {
+  background: rgba(255, 214, 102, 0.95);
+  color: #3f2a00;
+  border-radius: 2px;
+  padding: 0 2px;
 }
 </style>
