@@ -29,6 +29,9 @@ func run(timeout time.Duration, name string, args ...string) (string, error) {
 	}
 	limited := io.LimitReader(pipe, maxOutputBytes)
 	data, readErr := io.ReadAll(limited)
+	go func() {
+		_, _ = io.Copy(io.Discard, pipe)
+	}()
 	waitErr := cmd.Wait()
 	if readErr != nil {
 		return string(data), readErr

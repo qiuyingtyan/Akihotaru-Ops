@@ -31,13 +31,13 @@ var (
 	reSucceeded  = regexp.MustCompile(`Job succeeded`)
 	reFailed     = regexp.MustCompile(`Job failed`)
 	reANSI       = regexp.MustCompile(`\x1b\[[0-9;]*[A-Za-z]`)
-	reField      = regexp.MustCompile(`(duration_s|job|job-status|project_full_path|failure_reason)=("[^"]*"|[^ ]+)`)
+	reField      = regexp.MustCompile(`(duration_s|job|job-status|project_full_path|failure_reason)\s*=\s*("[^"]*"|\S+)`)
 	reTimestamp  = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z`)
-	reLogrusMsg  = regexp.MustCompile(`\bmsg="([^"]*)"`)
-	reLogrusErr  = regexp.MustCompile(`\berror="([^"]*)"`)
-	reTrailKV    = regexp.MustCompile(`\s+[A-Za-z_][A-Za-z0-9_-]*=\S+\s*$`)
-	reJobID      = regexp.MustCompile(`\bjob=(\d+)\b`)
-	reLogrusTime = regexp.MustCompile(`^time="[^"]*"\s*`)
+	reLogrusMsg  = regexp.MustCompile(`\bmsg\s*=\s*"([^"]*)"`)
+	reLogrusErr  = regexp.MustCompile(`\berror\s*=\s*"([^"]*)"`)
+	reTrailKV    = regexp.MustCompile(`\s+[A-Za-z_][A-Za-z0-9_-]*\s*=\s*\S+\s*$`)
+	reJobID      = regexp.MustCompile(`\bjob\s*=\s*(\d+)\b`)
+	reLogrusTime = regexp.MustCompile(`^time\s*=\s*"[^"]*"\s*`)
 )
 
 var gitlabHTTP = &http.Client{
@@ -54,7 +54,7 @@ var gitlabHTTP = &http.Client{
 }
 
 func fetchRunnerJobsFromLog() []PipelineJob {
-	out, err := run(15*time.Second, "docker", "logs", "--timestamps", "--tail", "20000", "baq-gitlab-runner")
+	out, err := run(10*time.Second, "docker", "logs", "--timestamps", "--tail", "3000", "baq-gitlab-runner")
 	if err != nil && out == "" {
 		return nil
 	}
