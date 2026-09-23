@@ -17,7 +17,7 @@ func main() {
 	app := NewApp()
 
 	err := wails.Run(&options.App{
-		Title:           "pf3090 服务器运维客户端",
+		Title:           "秋萤云台 · AkiHotaru",
 		Width:           1280,
 		Height:          820,
 		MinWidth:        960,
@@ -34,7 +34,7 @@ func main() {
 			app,
 		},
 		SingleInstanceLock: &options.SingleInstanceLock{
-			UniqueId: "opsweb-desktop-client-pf3090",
+			UniqueId: "akihotaru-ops-desktop-client",
 			OnSecondInstanceLaunch: func(data options.SecondInstanceData) {
 				if app.ctx != nil {
 					wailsRuntime.WindowUnminimise(app.ctx)

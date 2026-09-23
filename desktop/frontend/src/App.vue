@@ -107,14 +107,16 @@ function handleClose() {
     <header class="titlebar" @dblclick="handleToggleMaximise">
       <!-- 左侧品牌与状态区 -->
       <div class="titlebar-left">
-        <div class="brand-badge">
-          <span class="brand-flower">🌸</span>
-          <span class="brand-title">OPS-WEB</span>
-          <span class="brand-tag">CLIENT</span>
+        <div class="brand-badge" title="秋萤云台 · AkiHotaru - 秋夜流萤，微光守候，静默自愈">
+          <span class="brand-flower">✨</span>
+          <div class="brand-titles">
+            <span class="brand-cn">秋萤云台</span>
+            <span class="brand-en">AKIHOTARU</span>
+          </div>
         </div>
-        <div class="status-pill" title="桌面宿主已就绪">
+        <div class="status-pill" title="秋萤守护常驻中，通信链路正常">
           <span class="pulse-dot"></span>
-          <span class="status-txt">RUNNING</span>
+          <span class="status-txt">守护中</span>
         </div>
       </div>
 
@@ -277,30 +279,38 @@ html, body, #app {
 .brand-badge {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+  cursor: default;
 }
 .brand-flower {
-  font-size: 17px;
-  filter: drop-shadow(0 0 6px rgba(251, 122, 158, 0.6));
+  font-size: 16px;
+  filter: drop-shadow(0 0 8px #4ade80);
+  animation: glowFirefly 2.5s infinite alternate ease-in-out;
 }
-.brand-title {
+@keyframes glowFirefly {
+  0% { transform: scale(0.95); filter: drop-shadow(0 0 4px #4ade80); }
+  100% { transform: scale(1.1); filter: drop-shadow(0 0 10px #86efac); }
+}
+.brand-titles {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.1;
+}
+.brand-cn {
   font-size: 13px;
   font-weight: 800;
-  letter-spacing: 0.5px;
-  background: linear-gradient(135deg, #ffb3cb, #fb7a9e);
+  letter-spacing: 0.8px;
+  background: linear-gradient(135deg, #a7f3d0, #6ee7b7 40%, #ff9ec6 100%);
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
 }
-.brand-tag {
-  font-size: 9px;
+.brand-en {
+  font-size: 8px;
   font-weight: 700;
-  letter-spacing: 0.8px;
-  padding: 1px 5px;
-  border-radius: 4px;
+  letter-spacing: 1.4px;
   color: #c4b5fd;
-  background: rgba(167, 139, 250, 0.18);
-  border: 1px solid rgba(167, 139, 250, 0.3);
+  opacity: 0.85;
 }
 .status-pill {
   display: flex;
