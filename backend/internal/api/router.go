@@ -81,6 +81,7 @@ func sessionAuth() gin.HandlerFunc {
 // NewRouter builds the gin engine with auth and all routes.
 func NewRouter() *gin.Engine {
 	collect.SetMetricsDB(db)
+	collect.SetAppServiceDB(db)
 	collect.StartSampler(MetricsIngest)
 	collect.StartAlertChecker()
 
@@ -169,6 +170,52 @@ func NewRouter() *gin.Engine {
 
 	// process list
 	apiGroup.GET("/processes", collect.ProcessesHandler)
+
+	apiGroup.GET("/app-services", collect.AppServicesListHandler)
+	apiGroup.POST("/app-services", collect.AppServiceCreateHandler)
+	apiGroup.PUT("/app-services/:id", collect.AppServiceUpdateHandler)
+	apiGroup.DELETE("/app-services/:id", collect.AppServiceDeleteHandler)
+	apiGroup.POST("/app-services/:name/:action",
+		actionHandler("app_service", func(c *gin.Context) (string, error) {
+			return collect.CoreAppServiceAction(c.Param("name"), c.Param("action"))
+		}))
+	apiGroup.POST("/app-services-batch/:action",
+		actionHandler("app_service_batch", func(c *gin.Context) (string, error) {
+			res, err := collect.CoreBatchAction(c.Param("action"))
+			if err != nil {
+				return "", err
+			}
+			return fmt.Sprintf("batch %s completed (%d services)", c.Param("action"), res["total"]), nil
+		}))
+	apiGroup.POST("/app-services-sync-systemd", collect.AppServicesSyncSystemdHandler)
+	apiGroup.GET("/app-services/self-check", collect.AppServicesSelfCheckHandler)
+	apiGroup.GET("/app-services/export-bundle", collect.AppServicesExportBundleHandler)
+
+	apiGroup.GET("/storage/overview", collect.StorageOverviewHandler)
+	apiGroup.GET("/storage/large-files", collect.StorageLargeFilesHandler)
+	apiGroup.POST("/storage/truncate-file",
+		actionHandler("storage_truncate", func(c *gin.Context) (string, error) {
+			var req collect.TruncateReq
+			if err := c.ShouldBindJSON(&req); err != nil {
+				return "", err
+			}
+			if err := collect.CoreTruncateLogFile(req.Path); err != nil {
+				return "", err
+			}
+			return "truncated " + req.Path, nil
+		}))
+	apiGroup.POST("/storage/clean-archives",
+		actionHandler("storage_clean", func(c *gin.Context) (string, error) {
+			var req collect.CleanArchivesReq
+			_ = c.ShouldBindJSON(&req)
+			cnt, freed, err := collect.CoreCleanOldArchives(req.Days)
+			if err != nil {
+				return "", err
+			}
+			return fmt.Sprintf("cleaned %d files, freed %d bytes", cnt, freed), nil
+		}))
+	apiGroup.POST("/storage/deploy-logrotate", collect.StorageDeployLogrotateHandler)
+	apiGroup.POST("/storage/settings", collect.StorageSaveSettingsHandler)
 
 	// generic log tail + journal + directory browser + live follow (SSE)
 	apiGroup.GET("/logs/file", collect.LogFileHandler)

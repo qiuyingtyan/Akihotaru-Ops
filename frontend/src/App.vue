@@ -42,7 +42,8 @@ watch(() => route.path, (p) => {
 const menus = [
   { to: '/', label: '总览', icon: '🌸', on: '🌷' },
   { to: '/containers', label: '容器', icon: '📦', on: '🎁' },
-  { to: '/projects', label: '项目', icon: '🚀', on: '✨' },
+  { to: '/projects', label: '业务服务', icon: '🚀', on: '✨' },
+  { to: '/storage', label: '存储守卫', icon: '🛡️', on: '✨' },
   { to: '/cicd', label: 'CI/CD', icon: '⚙️', on: '🔧' },
   { to: '/services', label: '系统服务', icon: '🖥️', on: '💫' },
   { to: '/logs', label: '日志', icon: '📄', on: '📝' },

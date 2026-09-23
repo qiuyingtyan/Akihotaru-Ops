@@ -325,6 +325,47 @@ func init() {
 				return truncate(out, 8000), nil
 			},
 		},
+		toolSpec{
+			Name:        "get_app_services",
+			Description: "获取所有纳管的业务应用微服务及其运行时状态（PID、端口、CPU、内存等）",
+			Level:       levelRead,
+			Exec: func(args map[string]any) (string, error) {
+				list := collect.CoreGetAppServices()
+				var sb strings.Builder
+				for _, s := range list {
+					sb.WriteString(fmt.Sprintf("[%s] %s | 级别:L%d | 状态:%s(%s) | 端口:%d(通:%v) | PID:%d | CPU:%.1f%% | 内存:%dMB\n",
+						s.Name, s.DisplayName, s.Level, s.Status, s.SubState, s.Port, s.PortListening, s.PID, s.CPUPerc, s.RSSMB))
+				}
+				if sb.Len() == 0 {
+					return "暂无纳管的业务应用服务", nil
+				}
+				return sb.String(), nil
+			},
+		},
+		toolSpec{
+			Name:        "reboot_self_check",
+			Description: "执行断电/开机自检，诊断所有业务微服务健康状态和启动情况",
+			Level:       levelRead,
+			Exec: func(args map[string]any) (string, error) {
+				res := collect.CoreRebootSelfCheck()
+				return fmt.Sprintf("主机已运行: %s\n纳管总服务: %d\n正常健康: %d\n异常或未就绪: %d\n是否全部就绪: %v",
+					res.UptimeFormatted, res.TotalCount, res.HealthyCount, res.UnhealthyCount, res.AllHealthy), nil
+			},
+		},
+		toolSpec{
+			Name:        "get_storage_guard",
+			Description: "查看存储防爆监控大盘：磁盘使用率及前 10 个超大日志/数据文件",
+			Level:       levelRead,
+			Exec: func(args map[string]any) (string, error) {
+				files := collect.CoreScanLargeFiles("", 10)
+				var sb strings.Builder
+				sb.WriteString("【超大文件 TOP 10】\n")
+				for i, f := range files {
+					sb.WriteString(fmt.Sprintf("%d. %s (%s) - %s\n", i+1, f.Path, f.SizeFormatted, f.ModTime))
+				}
+				return sb.String(), nil
+			},
+		},
 	)
 }
 
