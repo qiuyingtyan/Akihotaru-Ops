@@ -88,14 +88,72 @@
       </Teleport>
 
       <div class="card mt">
-        <div style="display:flex;justify-content:space-between;align-items:center">
-          <div class="stat-label">Runner 日志（最近 {{ tailN }} 行）</div>
-          <span>
-            <input v-model.number="tailN" style="width:60px;background:var(--panel2);border:1.5px solid var(--border);color:var(--text);border-radius:10px;padding:4px 8px" />
-            <button class="btn" @click="loadRunnerLogs">刷新</button>
-          </span>
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+          <div class="stat-label">GitLab Runner 日志</div>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <div class="log-btn-group">
+              <button class="log-mode-btn" :class="{ active: viewMode === 'card' }" @click="viewMode = 'card'">📋 结构化</button>
+              <button class="log-mode-btn" :class="{ active: viewMode === 'raw' }" @click="viewMode = 'raw'">💻 原生终端</button>
+            </div>
+            <div class="log-btn-group">
+              <button class="log-filter-btn" :class="{ active: filterType === 'all' }" @click="filterType = 'all'">全部</button>
+              <button class="log-filter-btn" :class="{ active: filterType === 'jobs' }" @click="filterType = 'jobs'">⭐ 关键事件</button>
+              <button class="log-filter-btn" :class="{ active: filterType === 'errors' }" @click="filterType = 'errors'">🔴 错误告警</button>
+            </div>
+            <div class="log-search-wrap">
+              <span style="font-size:12px;opacity:0.7">🔍</span>
+              <input v-model="logKw" placeholder="过滤关键字 / JobID..." spellcheck="false" />
+              <button v-if="logKw" class="log-clear-btn" @click="logKw = ''">✕</button>
+            </div>
+            <select v-model="tailN" @change="loadRunnerLogs" class="log-select">
+              <option :value="50">50 行</option>
+              <option :value="100">100 行</option>
+              <option :value="200">200 行</option>
+              <option :value="500">500 行</option>
+            </select>
+            <button class="btn" style="padding:4px 10px;font-size:12px" @click="loadRunnerLogs">🔄 刷新</button>
+            <button class="btn" style="padding:4px 10px;font-size:12px" @click="copyAllRunnerLogs">{{ logCopied ? '✓ 已复制' : '📋 复制' }}</button>
+          </div>
         </div>
-        <pre class="log mt">{{ runnerLogs || '（暂无）' }}</pre>
+
+        <div v-if="viewMode === 'card'" class="runner-card-wrap mt">
+          <div v-if="loadingLogs" class="muted loading-tip">(๑>ᴗ<๑) 正在读取 Runner 日志…</div>
+          <div v-else-if="!filteredParsedLogs.length" class="muted loading-tip">(っ˘ω˘ς) 未匹配到相关日志条目</div>
+          <div v-else class="runner-log-list">
+            <div
+              v-for="(item, idx) in filteredParsedLogs"
+              :key="idx"
+              class="runner-log-item"
+              :class="'level-' + item.level"
+            >
+              <div class="runner-item-main">
+                <span class="runner-item-time">{{ item.time || '-' }}</span>
+                <span class="runner-level-tag" :class="'tag-' + item.level">{{ item.badgeText }}</span>
+                <span v-if="item.jobId" class="runner-item-chip job-chip">Job #{{ item.jobId }}</span>
+                <span v-if="item.project" class="runner-item-chip proj-chip">{{ item.project }}</span>
+                <span v-if="item.duration" class="runner-item-chip dur-chip">⏱ {{ item.duration }}</span>
+                <span class="runner-item-head" v-html="highlightKw(item.headline)"></span>
+              </div>
+              <div v-if="item.details" class="runner-item-meta">
+                <span v-html="highlightKw(item.details)"></span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div v-else class="runner-raw-wrap mt">
+          <div class="runner-raw-box">
+            <div v-if="loadingLogs" class="muted" style="padding:16px;text-align:center">(๑>ᴗ<๑) 正在读取终端日志…</div>
+            <div v-else-if="!filteredRawLines.length" class="muted" style="padding:16px;text-align:center">(っ˘ω˘ς) 未匹配到相关终端日志</div>
+            <div
+              v-for="(line, idx) in filteredRawLines"
+              :key="idx"
+              class="runner-raw-line"
+              :class="getTermLineClass(line)"
+              v-html="highlightKw(line)"
+            ></div>
+          </div>
+        </div>
       </div>
     </template>
     <div v-else class="muted loading-tip">(๑•̀ㅂ•́)و✧ 加载中...</div>
@@ -114,6 +172,12 @@ const tailN = ref(100)
 const pipelines = ref([])
 const tip = ref({ show: false, x: 0, y: 0, job: null })
 let hideTimer
+
+const viewMode = ref('card')
+const filterType = ref('all')
+const logKw = ref('')
+const loadingLogs = ref(false)
+const logCopied = ref(false)
 
 const tipStyle = computed(() => ({
   left: tip.value.x + 'px',
@@ -184,8 +248,195 @@ function clampTail() {
 }
 
 async function loadRunnerLogs() {
-  try { runnerLogs.value = await api(`/cicd/runner/logs?tail=${clampTail()}`) }
-  catch (e) { runnerLogs.value = '获取失败: ' + e.message }
+  loadingLogs.value = true
+  try {
+    runnerLogs.value = await api(`/cicd/runner/logs?tail=${clampTail()}`)
+  } catch (e) {
+    runnerLogs.value = '获取失败: ' + e.message
+  } finally {
+    loadingLogs.value = false
+  }
+}
+
+function cleanAnsi(text) {
+  if (!text) return ''
+  return text
+    .replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '')
+    .replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]/g, '')
+}
+
+function parseLogLine(rawLine) {
+  const line = cleanAnsi(rawLine).trim()
+  if (!line) return null
+
+  let timeStr = ''
+  let rest = line
+  const tsMatch = line.match(/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z)\s+/)
+  if (tsMatch) {
+    const d = new Date(tsMatch[1])
+    if (!isNaN(d.getTime())) {
+      const pad = n => String(n).padStart(2, '0')
+      timeStr = `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+    } else {
+      timeStr = tsMatch[1].slice(5, 19).replace('T', ' ')
+    }
+    rest = line.slice(tsMatch[0].length).trim()
+  }
+
+  const jobM = rest.match(/\bjob=(\d+)\b/)
+  const jobId = jobM ? jobM[1] : ''
+
+  const projM = rest.match(/\bproject_full_path=([^\s]+)/)
+  const project = projM ? projM[1] : ''
+
+  const durM = rest.match(/\bduration_s=([0-9.]+)/)
+  const duration = durM ? (parseFloat(durM[1]).toFixed(1) + 's') : ''
+
+  let level = 'info'
+  let badgeText = 'INFO'
+  const isErr = /\b(error|fatal|panic)\b/i.test(rest) || (/failed/i.test(rest) && !/Checking for jobs/i.test(rest))
+  const isWarn = /\b(warning|warn)\b/i.test(rest)
+  const isSucc = /job succeeded/i.test(rest)
+
+  if (isSucc) {
+    level = 'success'
+    badgeText = '成功'
+  } else if (isErr) {
+    level = 'error'
+    badgeText = '失败'
+  } else if (isWarn) {
+    level = 'warn'
+    badgeText = '警告'
+  } else if (/received/i.test(rest)) {
+    level = 'received'
+    badgeText = '分发'
+  } else if (/checking for jobs/i.test(rest)) {
+    level = 'poll'
+    badgeText = '轮询'
+  } else if (/submitting|appending trace|updating job/i.test(rest)) {
+    level = 'trace'
+    badgeText = '同步'
+  }
+
+  const kvStart = rest.search(/\s+[a-zA-Z_][a-zA-Z0-9_-]*=/)
+  let headline = kvStart > 0 ? rest.slice(0, kvStart).trim() : rest.trim()
+  headline = headline.replace(/\s{2,}/g, ' ')
+  let details = kvStart > 0 ? rest.slice(kvStart).trim().replace(/\s{2,}/g, ' ') : ''
+
+  return {
+    raw: line,
+    time: timeStr,
+    level,
+    badgeText,
+    headline,
+    jobId,
+    project,
+    duration,
+    details,
+    isKey: isSucc || isErr || isWarn || (jobId !== '')
+  }
+}
+
+const parsedLogs = computed(() => {
+  if (!runnerLogs.value) return []
+  return runnerLogs.value
+    .split('\n')
+    .map(parseLogLine)
+    .filter(Boolean)
+})
+
+const filteredParsedLogs = computed(() => {
+  const kw = logKw.value.trim().toLowerCase()
+  return parsedLogs.value.filter(item => {
+    if (filterType.value === 'jobs' && !item.isKey) return false
+    if (filterType.value === 'errors' && item.level !== 'error' && item.level !== 'warn') return false
+    if (kw) {
+      const match = item.raw.toLowerCase().includes(kw) ||
+                    item.headline.toLowerCase().includes(kw) ||
+                    item.project.toLowerCase().includes(kw) ||
+                    item.jobId.includes(kw)
+      if (!match) return false
+    }
+    return true
+  })
+})
+
+const rawLines = computed(() => {
+  if (!runnerLogs.value) return []
+  return runnerLogs.value
+    .split('\n')
+    .map(cleanAnsi)
+    .filter(l => l.trim() !== '')
+})
+
+const filteredRawLines = computed(() => {
+  const kw = logKw.value.trim().toLowerCase()
+  return rawLines.value.filter(line => {
+    if (filterType.value === 'jobs') {
+      if (!/\b(job=\d+|succeeded|failed|error|warning)\b/i.test(line)) return false
+    }
+    if (filterType.value === 'errors') {
+      if (!/\b(failed|error|warning|fatal)\b/i.test(line)) return false
+    }
+    if (kw && !line.toLowerCase().includes(kw)) return false
+    return true
+  })
+})
+
+const escMap = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }
+function escHtml(s) {
+  return String(s).replace(/[&<>"]/g, c => escMap[c])
+}
+
+function highlightKw(str) {
+  if (!str) return ''
+  const safe = escHtml(str)
+  if (!logKw.value.trim()) return safe
+  try {
+    const k = escHtml(logKw.value.trim()).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    return safe.replace(new RegExp(k, 'gi'), m => `<mark class="kw-hit">${m}</mark>`)
+  } catch {
+    return safe
+  }
+}
+
+function getTermLineClass(line) {
+  if (/\b(error|fatal|panic)\b/i.test(line) || (/failed/i.test(line) && !/checking for jobs/i.test(line))) return 'term-err'
+  if (/\b(warning|warn)\b/i.test(line)) return 'term-warn'
+  if (/job succeeded/i.test(line)) return 'term-succ'
+  if (/\bjob=\d+\b/i.test(line)) return 'term-job'
+  return ''
+}
+
+async function copyAllRunnerLogs() {
+  const text = runnerLogs.value || ''
+  if (!text) return
+  const done = () => {
+    logCopied.value = true
+    toast('Runner 日志已复制', 'success')
+    setTimeout(() => { logCopied.value = false }, 1500)
+  }
+  if (navigator.clipboard && window.isSecureContext) {
+    try {
+      await navigator.clipboard.writeText(text)
+      done()
+    } catch {
+      fallbackCopy(text, done)
+    }
+  } else {
+    fallbackCopy(text, done)
+  }
+}
+
+function fallbackCopy(text, done) {
+  const ta = document.createElement('textarea')
+  ta.value = text
+  ta.style.position = 'fixed'
+  ta.style.opacity = '0'
+  document.body.appendChild(ta)
+  ta.select()
+  try { document.execCommand('copy'); done() } catch { /* ignore */ }
+  ta.remove()
 }
 
 onMounted(async () => {
@@ -202,6 +453,201 @@ onUnmounted(() => clearTimeout(hideTimer))
 <style scoped>
 .ci-failed-row { cursor: pointer; }
 .ci-failed-row:hover td { background: rgba(251, 122, 158, 0.12); }
+
+.log-btn-group {
+  display: inline-flex;
+  border-radius: 999px;
+  background: var(--panel2);
+  border: 1px solid var(--border);
+  padding: 2px;
+  gap: 2px;
+}
+.log-mode-btn, .log-filter-btn {
+  background: transparent;
+  border: none;
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 12px;
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.log-mode-btn.active, .log-filter-btn.active {
+  background: var(--panel-solid);
+  color: var(--accent-deep);
+  font-weight: 600;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+}
+.log-search-wrap {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--panel2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+.log-search-wrap input {
+  border: none;
+  background: transparent;
+  outline: none;
+  font-size: 12px;
+  color: var(--text);
+}
+.log-clear-btn {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 11px;
+}
+.log-select {
+  background: var(--panel2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 12px;
+  padding: 2px 6px;
+}
+
+.runner-card-wrap {
+  max-height: 520px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel-solid);
+  padding: 8px;
+}
+.runner-log-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.runner-log-item {
+  display: flex;
+  flex-direction: column;
+  padding: 7px 10px;
+  border-radius: 8px;
+  border-left: 3px solid rgba(200, 200, 200, 0.3);
+  background: rgba(255, 255, 255, 0.5);
+  font-size: 12px;
+  transition: background 0.15s ease;
+}
+.runner-log-item:hover {
+  background: rgba(255, 255, 255, 0.95);
+}
+.runner-log-item.level-success {
+  border-left-color: #3bb273;
+  background: rgba(59, 178, 115, 0.05);
+}
+.runner-log-item.level-error {
+  border-left-color: #e8537f;
+  background: rgba(232, 83, 127, 0.08);
+}
+.runner-log-item.level-warn {
+  border-left-color: #f1a23a;
+  background: rgba(241, 162, 58, 0.08);
+}
+.runner-log-item.level-received {
+  border-left-color: #9254de;
+  background: rgba(146, 84, 222, 0.05);
+}
+.runner-log-item.level-trace, .runner-log-item.level-poll {
+  opacity: 0.85;
+}
+
+.runner-item-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  line-height: 1.4;
+}
+.runner-item-time {
+  font-family: Consolas, "JetBrains Mono", monospace;
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.runner-level-tag {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.tag-success { background: #d7f5e3; color: #1e7e46; }
+.tag-error { background: #fed7e2; color: #b81d48; }
+.tag-warn { background: #feecd2; color: #9c5409; }
+.tag-received { background: #efe2fe; color: #531dab; }
+.tag-poll { background: #e6f4ff; color: #0958d9; }
+.tag-trace, .tag-info { background: #f0f0f0; color: #595959; }
+
+.runner-item-chip {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+  font-family: Consolas, "JetBrains Mono", monospace;
+}
+.job-chip { background: #e8d7fa; color: #5b21b6; font-weight: 600; }
+.proj-chip { background: #fde8e8; color: #991b1b; }
+.dur-chip { background: #fef3c7; color: #92400e; font-weight: 600; }
+
+.runner-item-head {
+  font-weight: 600;
+  color: var(--text);
+  word-break: break-word;
+}
+.runner-item-meta {
+  margin-top: 4px;
+  font-family: Consolas, "JetBrains Mono", monospace;
+  font-size: 11px;
+  color: #887e96;
+  white-space: pre-wrap;
+  word-break: break-word;
+  padding: 3px 6px;
+  background: rgba(0, 0, 0, 0.03);
+  border-radius: 4px;
+}
+
+.runner-raw-wrap {
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid rgba(201, 168, 245, 0.35);
+}
+.runner-raw-box {
+  background: linear-gradient(160deg, #322846, #231c33);
+  padding: 12px;
+  max-height: 520px;
+  overflow: auto;
+  font-family: Consolas, "JetBrains Mono", monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #f3d9ff;
+  white-space: pre;
+  box-shadow: inset 0 2px 10px rgba(0, 0, 0, 0.25);
+}
+.runner-raw-line {
+  display: block;
+  white-space: pre;
+  padding: 0 4px;
+}
+.runner-raw-line:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+.term-err { color: #ff9db1; font-weight: 600; }
+.term-warn { color: #ffd479; }
+.term-succ { color: #86efac; font-weight: 600; }
+.term-job { color: #d8b4fe; }
+
+:deep(.kw-hit) {
+  background: rgba(255, 214, 102, 0.9);
+  color: #3f2a00;
+  border-radius: 2px;
+  padding: 0 2px;
+}
 </style>
 
 <style>

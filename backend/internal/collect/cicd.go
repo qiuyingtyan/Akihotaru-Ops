@@ -94,7 +94,11 @@ func RunnerLogsHandler(c *gin.Context) {
 }
 
 func CoreRunnerLogs(tail string) (string, error) {
-	return run(15*time.Second, "docker", "logs", "--tail", tail, "baq-gitlab-runner")
+	out, err := run(15*time.Second, "docker", "logs", "--timestamps", "--tail", tail, "baq-gitlab-runner")
+	if out != "" {
+		out = reANSI.ReplaceAllString(out, "")
+	}
+	return out, err
 }
 
 type CICDSummary struct {
