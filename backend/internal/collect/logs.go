@@ -20,8 +20,7 @@ import (
 )
 
 var allowedLogRoots = []string{
-	"/workspace/baq-test/logs", "/workspace/szx-test/logs",
-	"/workspace/baq-test/.deploy", "/workspace/szx-test/.deploy",
+	"/var/log", "/workspace",
 }
 
 const maxLogReadBytes = 8 << 20 // read at most 8MB from the end of file

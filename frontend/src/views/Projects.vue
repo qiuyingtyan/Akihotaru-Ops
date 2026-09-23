@@ -146,15 +146,15 @@
         <div class="mt form-grid">
           <div>
             <label class="form-label">服务标识名 (英文，用于生成 ops-{name}.service)*</label>
-            <input v-model="modal.form.name" :disabled="modal.isEdit" placeholder="例如 baq-main, szx-gateway" />
+            <input v-model="modal.form.name" :disabled="modal.isEdit" placeholder="例如 api-gateway, auth-service" />
           </div>
           <div>
             <label class="form-label">显示名称*</label>
-            <input v-model="modal.form.displayName" placeholder="例如 办案区-主服务" />
+            <input v-model="modal.form.displayName" placeholder="例如 核心网关服务" />
           </div>
           <div>
             <label class="form-label">业务分组</label>
-            <input v-model="modal.form.groupName" placeholder="例如 办案区, 三中心, 通用" />
+            <input v-model="modal.form.groupName" placeholder="例如 核心服务, 业务微服务, 通用组件" />
           </div>
           <div>
             <label class="form-label">启动顺序优先级</label>
@@ -166,11 +166,11 @@
           </div>
           <div style="grid-column:1/-1">
             <label class="form-label">工作目录 (WorkingDirectory)*</label>
-            <input v-model="modal.form.workDir" placeholder="例如 /workspace/baq-test" />
+            <input v-model="modal.form.workDir" placeholder="例如 /workspace/app" />
           </div>
           <div style="grid-column:1/-1">
             <label class="form-label">启动命令或脚本路径 (ExecStart)*</label>
-            <input v-model="modal.form.execStart" placeholder="例如 ./start.sh 或 /workspace/baq-test/start.sh 或 java -jar app.jar" />
+            <input v-model="modal.form.execStart" placeholder="例如 ./start.sh 或 /workspace/app/start.sh 或 java -jar app.jar" />
           </div>
           <div style="grid-column:1/-1">
             <label class="form-label">停止命令或脚本路径 (ExecStop，选填)</label>
@@ -194,7 +194,7 @@
           </div>
           <div style="grid-column:1/-1">
             <label class="form-label">关联日志路径 (用于面板直达查看与 Logrotate 轮转)</label>
-            <input v-model="modal.form.logPath" placeholder="例如 /workspace/baq-test/logs/app.log" />
+            <input v-model="modal.form.logPath" placeholder="例如 /workspace/app/logs/app.log" />
           </div>
           <div style="display:flex;align-items:center;gap:16px;grid-column:1/-1;margin-top:6px">
             <label style="display:flex;align-items:center;gap:6px">
@@ -248,7 +248,7 @@ const modal = ref({
   form: {
     name: '',
     displayName: '',
-    groupName: '办案区',
+    groupName: '核心服务',
     level: 3,
     workDir: '',
     execStart: '',
@@ -386,7 +386,7 @@ function openModal(s) {
       form: {
         name: s.name || '',
         displayName: s.displayName || '',
-        groupName: s.groupName || '办案区',
+        groupName: s.groupName || '核心服务',
         level: Number(s.level) || 3,
         workDir: s.workDir || '',
         execStart: s.execStart || '',
@@ -407,7 +407,7 @@ function openModal(s) {
       form: {
         name: '',
         displayName: '',
-        groupName: curGroup.value !== 'all' ? curGroup.value : '办案区',
+        groupName: curGroup.value !== 'all' ? curGroup.value : '核心服务',
         level: 3,
         workDir: '/workspace',
         execStart: '',
@@ -433,7 +433,7 @@ async function saveModal() {
   const payload = {
     name: String(f.name).trim(),
     displayName: String(f.displayName).trim(),
-    groupName: f.groupName ? String(f.groupName).trim() : '办案区',
+    groupName: f.groupName ? String(f.groupName).trim() : '核心服务',
     level: Number(f.level) || 3,
     workDir: f.workDir ? String(f.workDir).trim() : '/workspace',
     execStart: String(f.execStart).trim(),

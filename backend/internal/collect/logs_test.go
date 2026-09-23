@@ -10,8 +10,8 @@ func TestResolveLogPathAllowed(t *testing.T) {
 		"/var/log",
 		"/var/log/syslog",
 		"/var/log/nginx/access.log",
-		"/workspace/baq-test/logs/main/info.log",
-		"/workspace/szx-test/.deploy/x",
+		"/workspace/app/logs/main/info.log",
+		"/workspace/app/.deploy/x",
 	}
 	for _, p := range cases {
 		if _, err := resolveLogPath(p); err != nil {
@@ -42,7 +42,7 @@ func TestResolveLogPathTraversal(t *testing.T) {
 	cases := []string{
 		"/var/log/../../etc/passwd",
 		"/var/log/../shadow",
-		"/workspace/baq-test/logs/../../../etc/passwd",
+		"/workspace/app/logs/../../../etc/passwd",
 		"/var/log/sub/../../../etc/passwd",
 	}
 	for _, p := range cases {

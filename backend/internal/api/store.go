@@ -40,7 +40,7 @@ func InitStore(dsn string, seedUser, seedPass string) error {
 	d.SetMaxOpenConns(4)
 	d.SetMaxIdleConns(2)
 	d.SetConnMaxLifetime(30 * time.Minute)
-	// pgsql-baq 容器可能比本服务晚就绪，重试一段时间而不是直接退出
+	// 数据库容器可能比本服务晚就绪，重试一段时间而不是直接退出
 	var pingErr error
 	for i := 0; i < 30; i++ {
 		pingErr = d.Ping()

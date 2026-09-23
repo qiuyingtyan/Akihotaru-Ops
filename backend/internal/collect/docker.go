@@ -135,61 +135,74 @@ type Project struct {
 	LastDeploy string   `json:"lastDeploy,omitempty"`
 }
 
-var projectRoots = []string{"/workspace/baq-test", "/workspace/szx-test", "/workspace/ljgw", "/workspace/YangQingDe"}
-
-var knownProjects = map[string][]string{
-	"办案区(baq-test)":    {"baq-main-service", "baq-video-service", "baq-receiver-service", "baq-live", "baq-zlm", "baq-test-nginx", "baq-gitlab-runner", "mysql-baq", "redis-baq", "pgsql-baq", "rabbitmq", "gitlab", "nacos"},
-	"三中心(szx-test)":    {"szx-glzx-gateway", "szx-glzx-ag", "szx-glzx-baq", "szx-glzx-sacw", "szx-glzx-clean", "szx-glzx-converge", "szx-agzx-service", "szx-agzx-cabinet", "szx-sacw-service", "szx-test-nginx"},
-	"vocedu平台":          {"vocedu-gateway", "vocedu-user-service", "vocedu-student-web", "vocedu-admin-web", "vocedu-mysql", "vocedu-redis", "vocedu-minio"},
-	"VirtualLedgerMart": {"vlm-api", "vlm-web", "vlm-postgres"},
-}
+var projectRoots = []string{"/workspace"}
 
 func ProjectsHandler(c *gin.Context) {
 	ok(c, CoreProjects())
 }
 
 func CoreProjects() []Project {
-	out, err := run(10*time.Second, "docker", "ps", "-a", "--format", "{{.Names}}\t{{.State}}\t{{.Status}}")
+	out, err := run(10*time.Second, "docker", "ps", "-a", "--format", "{{.Names}}\t{{.State}}\t{{.Status}}\t{{.Label \"com.docker.compose.project\"}}\t{{.Label \"com.docker.compose.project.working_dir\"}}")
 	if err != nil {
 		return []Project{}
 	}
-	stateMap := map[string]string{}
+
+	projectMap := map[string]*Project{}
 	for _, line := range strings.Split(out, "\n") {
-		f := strings.SplitN(line, "\t", 3)
-		if len(f) >= 2 {
-			stateMap[f[0]] = f[1] + "|" + strings.Join(f[2:], "\t")
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
 		}
-	}
-	list := []Project{}
-	for name, cons := range knownProjects {
-		p := Project{Name: name, Kind: "docker-compose", Containers: []string{}}
-		switch name {
-		case "办案区(baq-test)":
-			p.Path = "/workspace/baq-test"
-		case "三中心(szx-test)":
-			p.Path = "/workspace/szx-test"
-		case "vocedu平台":
-			p.Path = "/workspace/ljgw/vocedu_integrated_platform"
-		case "VirtualLedgerMart":
-			p.Path = "/workspace/ljgw/Virtual_Ledger_Mart"
+		f := strings.Split(line, "\t")
+		if len(f) < 3 {
+			continue
 		}
-		running := 0
-		for _, cn := range cons {
-			p.Containers = append(p.Containers, cn+" ["+stateMap[cn]+"]")
-			if strings.HasPrefix(stateMap[cn], "running") || strings.HasPrefix(stateMap[cn], "healthy") {
-				running++
+		cn := f[0]
+		state := f[1]
+		status := f[2]
+		composeProj := ""
+		workDir := ""
+		if len(f) >= 4 {
+			composeProj = strings.TrimSpace(f[3])
+		}
+		if len(f) >= 5 {
+			workDir = strings.TrimSpace(f[4])
+		}
+
+		projName := composeProj
+		if projName == "" {
+			projName = "系统独立容器"
+		}
+
+		p, exists := projectMap[projName]
+		if !exists {
+			p = &Project{
+				Name:       projName,
+				Kind:       "docker-compose",
+				Path:       workDir,
+				Containers: []string{},
 			}
+			if workDir != "" {
+				p.DiskUsage = dirSizeMB(workDir)
+				p.LastDeploy = lastBackupTime(workDir)
+			}
+			projectMap[projName] = p
 		}
-		p.DiskUsage = dirSizeMB(p.Path)
-		p.LastDeploy = lastBackupTime(p.Path)
-		_ = running
-		list = append(list, p)
+		p.Containers = append(p.Containers, cn+" ["+state+"|"+status+"]")
+	}
+
+	list := []Project{}
+	for _, p := range projectMap {
+		list = append(list, *p)
 	}
 	sort.Slice(list, func(i, j int) bool { return list[i].Name < list[j].Name })
 	return list
 }
 
 func dirSizeMB(path string) int64 {
+	if path == "" {
+		return 0
+	}
 	out, err := run(20*time.Second, "sh", "-c", "du -sm "+path+" 2>/dev/null | cut -f1")
 	if err != nil {
 		return 0
@@ -199,16 +212,14 @@ func dirSizeMB(path string) int64 {
 }
 
 func lastBackupTime(path string) string {
+	if path == "" {
+		return ""
+	}
 	out, _ := run(5*time.Second, "sh", "-c", "ls -1 "+path+"/backup 2>/dev/null | tail -1")
 	return strings.TrimSpace(out)
 }
 
-var projectDeploy = map[string]string{
-	"办案区(baq-test)":    "/workspace/baq-test/.deploy/deploy-remote.sh",
-	"三中心(szx-test)":    "/workspace/szx-test/.deploy/deploy-remote.sh",
-	"vocedu平台":          "compose:/workspace/ljgw/vocedu_integrated_platform/docker-compose.yml",
-	"VirtualLedgerMart": "compose:/workspace/ljgw/Virtual_Ledger_Mart/docker-compose.yml",
-}
+var projectDeploy = map[string]string{}
 
 var deployMu sync.Mutex
 var deployBusy = false
@@ -218,9 +229,25 @@ func ProjectAction(c *gin.Context) (string, error) {
 }
 
 func CoreProjectDeploy(name string) (string, error) {
-	script, ok := projectDeploy[name]
-	if !ok {
-		return "", fmt.Errorf("no deploy method for project: %s", name)
+	script := projectDeploy[name]
+	if script == "" {
+		// 动态检测工作目录下的 docker-compose.yml 或 deploy.sh
+		projects := CoreProjects()
+		for _, p := range projects {
+			if p.Name == name && p.Path != "" {
+				if _, err := os.Stat(p.Path + "/docker-compose.yml"); err == nil {
+					script = "compose:" + p.Path + "/docker-compose.yml"
+					break
+				}
+				if _, err := os.Stat(p.Path + "/deploy.sh"); err == nil {
+					script = p.Path + "/deploy.sh"
+					break
+				}
+			}
+		}
+	}
+	if script == "" {
+		return "", fmt.Errorf("未找到项目 %s 的部署脚本或 compose 配置", name)
 	}
 	deployMu.Lock()
 	if deployBusy {

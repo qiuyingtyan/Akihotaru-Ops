@@ -147,7 +147,7 @@ function analyzeLog(lines) {
   router.push('/ai')
 }
 
-const roots = ['/var/log', '/workspace/baq-test/logs', '/workspace/szx-test/logs', '/workspace/baq-test/.deploy']
+const roots = ['/var/log', '/workspace/logs', '/workspace']
 
 const mode = ref('file')
 const path = ref('/var/log')

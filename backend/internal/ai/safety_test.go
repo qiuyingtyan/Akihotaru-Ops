@@ -29,7 +29,7 @@ func TestClassifyShell_ReadOnly(t *testing.T) {
 func TestClassifyShell_Blocked(t *testing.T) {
 	blocked := []string{
 		"rm -rf /",
-		"rm -rf /workspace/baq-test",
+		"rm -rf /workspace/app",
 		"shutdown -h now",
 		"reboot",
 		"mkfs.ext4 /dev/sda1",
@@ -58,10 +58,10 @@ func TestClassifyShell_Blocked(t *testing.T) {
 func TestClassifyShell_NeedsApproval(t *testing.T) {
 	needs := []string{
 		"docker rm myapp",
-		"docker stop baq-zlm",
+		"docker stop redis-app",
 		"systemctl restart nginx",
 		"kill 1234",
-		"rm /workspace/baq-test/logs/app.log",
+		"rm /workspace/app/logs/app.log",
 		"npm install express",
 		"sudo apt update",
 		"echo hello > /workspace/test.txt",

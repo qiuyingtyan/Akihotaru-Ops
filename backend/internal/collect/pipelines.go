@@ -54,7 +54,8 @@ var gitlabHTTP = &http.Client{
 }
 
 func fetchRunnerJobsFromLog() []PipelineJob {
-	out, err := run(10*time.Second, "docker", "logs", "--timestamps", "--tail", "3000", "baq-gitlab-runner")
+	runner := FindRunnerContainer()
+	out, err := run(10*time.Second, "docker", "logs", "--timestamps", "--tail", "3000", runner)
 	if err != nil && out == "" {
 		return nil
 	}

@@ -88,13 +88,30 @@ func CoreServiceAction(name, action string) (string, error) {
 	return out, nil
 }
 
+func FindRunnerContainer() string {
+	if name := os.Getenv("OPS_RUNNER_CONTAINER"); name != "" {
+		return name
+	}
+	out, err := run(5*time.Second, "docker", "ps", "-a", "--format", "{{.Names}}")
+	if err == nil {
+		for _, name := range strings.Split(out, "\n") {
+			name = strings.TrimSpace(name)
+			if strings.Contains(strings.ToLower(name), "runner") {
+				return name
+			}
+		}
+	}
+	return "gitlab-runner"
+}
+
 func RunnerLogsHandler(c *gin.Context) {
 	out, _ := CoreRunnerLogs(c.DefaultQuery("tail", "100"))
 	ok(c, out)
 }
 
 func CoreRunnerLogs(tail string) (string, error) {
-	out, err := run(15*time.Second, "docker", "logs", "--timestamps", "--tail", tail, "baq-gitlab-runner")
+	runner := FindRunnerContainer()
+	out, err := run(15*time.Second, "docker", "logs", "--timestamps", "--tail", tail, runner)
 	if out != "" {
 		out = reANSI.ReplaceAllString(out, "")
 	}
@@ -123,6 +140,7 @@ func CICDSummaryHandler(c *gin.Context) {
 
 func CoreCICDSummary() CICDSummary {
 	s := CICDSummary{CIJobs: []CIJob{}, DeployHooks: []string{}}
+	runner := FindRunnerContainer()
 	var wg syncWaitGroup
 
 	wg.Go(func() {
@@ -131,7 +149,7 @@ func CoreCICDSummary() CICDSummary {
 		s.GitlabDetail = strings.TrimSpace(out)
 	})
 	wg.Go(func() {
-		out, _ := run(5*time.Second, "docker", "inspect", "baq-gitlab-runner", "--format", "{{.State.Status}} {{.State.Health.Status}}")
+		out, _ := run(5*time.Second, "docker", "inspect", runner, "--format", "{{.State.Status}} {{.State.Health.Status}}")
 		f := strings.Fields(out)
 		if len(f) > 0 {
 			s.RunnerState = f[0]
@@ -145,7 +163,12 @@ func CoreCICDSummary() CICDSummary {
 		s.NacosUp = err == nil && strings.TrimSpace(out) == "200"
 	})
 	wg.Go(func() {
-		for _, root := range []string{"/workspace/baq-test", "/workspace/szx-test"} {
+		wsEntries, _ := os.ReadDir("/workspace")
+		for _, we := range wsEntries {
+			if !we.IsDir() {
+				continue
+			}
+			root := "/workspace/" + we.Name()
 			entries, _ := os.ReadDir(root + "/.ci")
 			for _, e := range entries {
 				if strings.HasSuffix(e.Name(), ".yml") || strings.HasSuffix(e.Name(), ".yaml") {
@@ -160,7 +183,6 @@ func CoreCICDSummary() CICDSummary {
 				s.DeployHooks = append(s.DeployHooks, hooks...)
 			}
 		}
-		s.DeployHooks = append(s.DeployHooks, findScripts("/workspace/YangQingDe")...)
 	})
 	wg.Wait()
 	return s

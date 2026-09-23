@@ -12,7 +12,7 @@
           <div class="muted mt">HTTP: {{ s.gitlabDetail }}</div>
         </div>
         <div class="card">
-          <div class="stat-label">GitLab Runner (baq-gitlab-runner)</div>
+          <div class="stat-label">GitLab Runner</div>
           <div class="stat-value">
             <span class="badge" :class="s.runnerState==='running' ? 'green' : 'red'">{{ s.runnerState || '未知' }}</span>
           </div>
