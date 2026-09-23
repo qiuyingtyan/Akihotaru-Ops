@@ -6,10 +6,22 @@ export function GetDefaultServerUrl() {
   return window['go']['main']['App']['GetDefaultServerUrl']();
 }
 
+export function IsWindowMaximised() {
+  return window['go']['main']['App']['IsWindowMaximised']();
+}
+
 export function OpenExternalBrowser(arg1) {
   return window['go']['main']['App']['OpenExternalBrowser'](arg1);
 }
 
-export function ToggleFullscreen() {
-  return window['go']['main']['App']['ToggleFullscreen']();
+export function WindowClose() {
+  return window['go']['main']['App']['WindowClose']();
+}
+
+export function WindowMinimise() {
+  return window['go']['main']['App']['WindowMinimise']();
+}
+
+export function WindowToggleMaximise() {
+  return window['go']['main']['App']['WindowToggleMaximise']();
 }

@@ -3,6 +3,12 @@
 
 export function GetDefaultServerUrl():Promise<string>;
 
+export function IsWindowMaximised():Promise<boolean>;
+
 export function OpenExternalBrowser(arg1:string):Promise<void>;
 
-export function ToggleFullscreen():Promise<void>;
+export function WindowClose():Promise<void>;
+
+export function WindowMinimise():Promise<void>;
+
+export function WindowToggleMaximise():Promise<void>;

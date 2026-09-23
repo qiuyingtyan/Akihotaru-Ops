@@ -17,11 +17,14 @@ func main() {
 	app := NewApp()
 
 	err := wails.Run(&options.App{
-		Title:         "pf3090 服务器运维客户端",
-		Width:         1280,
-		Height:        820,
-		MinWidth:      960,
-		MinHeight:     620,
+		Title:           "pf3090 服务器运维客户端",
+		Width:           1280,
+		Height:          820,
+		MinWidth:        960,
+		MinHeight:       600,
+		Frameless:       true,
+		CSSDragProperty: "--wails-draggable",
+		CSSDragValue:    "drag",
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},
@@ -40,7 +43,8 @@ func main() {
 			},
 		},
 		Windows: &windows.Options{
-			Theme: windows.Dark,
+			DisableFramelessWindowDecorations: false,
+			Theme:                             windows.Dark,
 		},
 	})
 

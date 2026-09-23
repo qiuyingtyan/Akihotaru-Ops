@@ -1,12 +1,31 @@
 <script setup>
-import { ref, onMounted } from 'vue'
-import { GetDefaultServerUrl, OpenExternalBrowser, ToggleFullscreen } from '../wailsjs/go/main/App'
+import { ref, onMounted, computed } from 'vue'
+import {
+  GetDefaultServerUrl,
+  OpenExternalBrowser,
+  WindowMinimise,
+  WindowToggleMaximise,
+  WindowClose,
+  IsWindowMaximised,
+} from '../wailsjs/go/main/App'
+
+const defaultServers = [
+  { name: '生产节点 (19 主机)', url: 'http://192.168.1.19:9800' },
+  { name: '本地节点 (Localhost)', url: 'http://127.0.0.1:9800' },
+]
 
 const serverUrl = ref('http://192.168.1.19:9800')
 const currentUrl = ref('http://192.168.1.19:9800')
 const iframeRef = ref(null)
 const isLoading = ref(true)
-const loadError = ref(false)
+const isMaximised = ref(false)
+const showDropdown = ref(false)
+const isEditing = ref(false)
+
+const currentNodeName = computed(() => {
+  const hit = defaultServers.find(s => s.url.replace(/\/$/, '') === currentUrl.value.replace(/\/$/, ''))
+  return hit ? hit.name.split(' ')[0] : '自定义节点'
+})
 
 onMounted(async () => {
   const saved = localStorage.getItem('opsweb_desktop_server')
@@ -24,6 +43,12 @@ onMounted(async () => {
       console.error(e)
     }
   }
+
+  setInterval(async () => {
+    try {
+      isMaximised.value = await IsWindowMaximised()
+    } catch { /* ignore */ }
+  }, 500)
 })
 
 function navigate() {
@@ -35,14 +60,19 @@ function navigate() {
   }
   localStorage.setItem('opsweb_desktop_server', u)
   isLoading.value = true
-  loadError.value = false
   currentUrl.value = u
+  isEditing.value = false
+  showDropdown.value = false
+}
+
+function selectServer(s) {
+  serverUrl.value = s.url
+  navigate()
 }
 
 function reload() {
   if (iframeRef.value) {
     isLoading.value = true
-    loadError.value = false
     iframeRef.value.src = currentUrl.value
   }
 }
@@ -55,43 +85,132 @@ function openInBrowser() {
   OpenExternalBrowser(currentUrl.value)
 }
 
-function toggleMax() {
-  ToggleFullscreen()
+function handleMinimise() {
+  WindowMinimise()
+}
+
+function handleToggleMaximise() {
+  WindowToggleMaximise()
+  setTimeout(async () => {
+    try { isMaximised.value = await IsWindowMaximised() } catch {}
+  }, 100)
+}
+
+function handleClose() {
+  WindowClose()
 }
 </script>
 
 <template>
-  <div class="client-layout">
-    <header class="client-header">
-      <div class="brand">
-        <span class="logo">🌸</span>
-        <span class="title">pf3090 运维桌面端</span>
+  <div class="window-container" :class="{ 'is-max': isMaximised }">
+    <!-- 沉浸式一体化暗夜霓虹标题栏 -->
+    <header class="titlebar" @dblclick="handleToggleMaximise">
+      <!-- 左侧品牌与状态区 -->
+      <div class="titlebar-left">
+        <div class="brand-badge">
+          <span class="brand-flower">🌸</span>
+          <span class="brand-title">OPS-WEB</span>
+          <span class="brand-tag">CLIENT</span>
+        </div>
+        <div class="status-pill" title="桌面宿主已就绪">
+          <span class="pulse-dot"></span>
+          <span class="status-txt">RUNNING</span>
+        </div>
       </div>
-      <div class="nav-bar">
-        <span class="srv-label">服务器:</span>
-        <input
-          v-model="serverUrl"
-          class="srv-input"
-          placeholder="例如 http://192.168.1.19:9800"
-          @keyup.enter="navigate"
-        />
-        <button class="nav-btn primary" title="连接该服务器" @click="navigate">连接</button>
-        <button class="nav-btn" title="刷新页面" @click="reload">🔄</button>
+
+      <!-- 中间极客卡片式服务器切换栏 -->
+      <div class="titlebar-center">
+        <div class="server-capsule">
+          <span class="server-badge">⚡ {{ currentNodeName }}</span>
+
+          <div v-if="!isEditing" class="url-display" @click="isEditing = true">
+            <span class="url-text">{{ currentUrl }}</span>
+            <span class="edit-hint" title="点击编辑地址">✎</span>
+          </div>
+
+          <input
+            v-else
+            v-model="serverUrl"
+            class="url-input"
+            autofocus
+            @blur="isEditing = false"
+            @keyup.enter="navigate"
+          />
+
+          <!-- 下拉选择按钮 -->
+          <button
+            class="capsule-btn dropdown-toggle"
+            :class="{ active: showDropdown }"
+            title="选择预设服务器"
+            @click.stop="showDropdown = !showDropdown"
+          >
+            ▾
+          </button>
+
+          <!-- 刷新按钮 -->
+          <button class="capsule-btn" title="刷新页面" @click.stop="reload">
+            <span class="icon-spin">🔄</span>
+          </button>
+
+          <!-- 系统浏览器打开 -->
+          <button class="capsule-btn" title="在默认浏览器中打开此页面" @click.stop="openInBrowser">
+            🌐
+          </button>
+
+          <!-- 预设服务器下拉菜单 -->
+          <div v-if="showDropdown" class="preset-dropdown">
+            <div class="dropdown-hd">预设运维节点</div>
+            <div
+              v-for="s in defaultServers"
+              :key="s.url"
+              class="dropdown-item"
+              :class="{ selected: s.url === currentUrl }"
+              @click.stop="selectServer(s)"
+            >
+              <div class="item-name">{{ s.name }}</div>
+              <div class="item-url">{{ s.url }}</div>
+            </div>
+          </div>
+        </div>
       </div>
-      <div class="actions">
-        <button class="action-btn" title="在系统浏览器中打开" @click="openInBrowser">🌐 浏览器打开</button>
-        <button class="action-btn" title="最大化/还原" @click="toggleMax">⛶</button>
+
+      <!-- 右侧原生级无缝三键 -->
+      <div class="titlebar-right">
+        <button class="sys-btn btn-min" title="最小化" @click="handleMinimise">
+          <svg width="10" height="1" viewBox="0 0 10 1">
+            <rect width="10" height="1" fill="currentColor" />
+          </svg>
+        </button>
+        <button class="sys-btn btn-max" :title="isMaximised ? '还原' : '最大化'" @click="handleToggleMaximise">
+          <svg v-if="!isMaximised" width="10" height="10" viewBox="0 0 10 10">
+            <rect width="9" height="9" x="0.5" y="0.5" fill="none" stroke="currentColor" stroke-width="1" />
+          </svg>
+          <svg v-else width="10" height="10" viewBox="0 0 10 10">
+            <path d="M2.5,0.5 H9.5 V7.5" fill="none" stroke="currentColor" stroke-width="1" />
+            <rect width="7" height="7" x="0.5" y="2.5" fill="none" stroke="currentColor" stroke-width="1" />
+          </svg>
+        </button>
+        <button class="sys-btn btn-close" title="关闭" @click="handleClose">
+          <svg width="10" height="10" viewBox="0 0 10 10">
+            <line x1="1" y1="1" x2="9" y2="9" stroke="currentColor" stroke-width="1.2" />
+            <line x1="9" y1="1" x2="1" y2="9" stroke="currentColor" stroke-width="1.2" />
+          </svg>
+        </button>
       </div>
     </header>
 
-    <main class="client-body">
-      <div v-if="isLoading" class="loading-bar">
-        <div class="loading-indicator"></div>
+    <!-- 顶栏下方的主体展示区 -->
+    <main class="window-body">
+      <!-- 极细霓虹渐变加载进度条 -->
+      <div v-if="isLoading" class="neon-progress">
+        <div class="neon-glow-bar"></div>
       </div>
+
+      <!-- 嵌入的核心运维 Web 控制台 -->
       <iframe
         ref="iframeRef"
         :src="currentUrl"
-        class="content-frame"
+        class="embedded-frame"
         @load="handleIframeLoad"
       ></iframe>
     </main>
@@ -109,136 +228,306 @@ html, body, #app {
   width: 100%;
   height: 100%;
   overflow: hidden;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  background: #181422;
-  color: #f1e9f8;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  background: transparent;
 }
-.client-layout {
+
+/* 整个客户端边框与暗夜霓虹外轮廓 */
+.window-container {
   display: flex;
   flex-direction: column;
   width: 100vw;
   height: 100vh;
   overflow: hidden;
+  background: #171322;
+  border: 1px solid rgba(251, 122, 158, 0.32);
+  border-radius: 10px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  transition: border-radius 0.2s ease;
 }
-.client-header {
-  height: 44px;
-  background: linear-gradient(90deg, #271f3a, #1f182f);
-  border-bottom: 1px solid rgba(201, 168, 245, 0.25);
+.window-container.is-max {
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+/* 沉浸式一体化暗夜霓虹标题栏 */
+.titlebar {
+  height: 42px;
+  background: radial-gradient(circle at 12% 0%, rgba(251, 122, 158, 0.2) 0%, transparent 55%),
+              radial-gradient(circle at 88% 0%, rgba(167, 139, 250, 0.15) 0%, transparent 50%),
+              linear-gradient(180deg, #281f3a 0%, #1c162a 100%);
+  border-bottom: 1px solid rgba(251, 122, 158, 0.22);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 12px;
-  gap: 12px;
-  z-index: 100;
+  padding: 0 0 0 14px;
+  z-index: 1000;
   flex-shrink: 0;
+  --wails-draggable: drag;
 }
-.brand {
+
+/* 左侧品牌与呼吸灯 */
+.titlebar-left {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-weight: 700;
+  gap: 12px;
+  --wails-draggable: drag;
+}
+.brand-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.brand-flower {
+  font-size: 17px;
+  filter: drop-shadow(0 0 6px rgba(251, 122, 158, 0.6));
+}
+.brand-title {
   font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  background: linear-gradient(135deg, #ffb3cb, #fb7a9e);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.brand-tag {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  color: #c4b5fd;
+  background: rgba(167, 139, 250, 0.18);
+  border: 1px solid rgba(167, 139, 250, 0.3);
+}
+.status-pill {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  background: rgba(16, 185, 129, 0.1);
+  border: 1px solid rgba(16, 185, 129, 0.25);
+  border-radius: 999px;
+}
+.pulse-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #34d399;
+  box-shadow: 0 0 8px #34d399;
+  animation: pulse 1.8s infinite ease-in-out;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.45; transform: scale(0.85); }
+}
+.status-txt {
+  font-size: 10px;
+  font-weight: 700;
+  color: #6ee7b7;
+  letter-spacing: 0.5px;
+}
+
+/* 中间极客胶囊控制台 */
+.titlebar-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  max-width: 640px;
+  padding: 0 10px;
+  --wails-draggable: drag;
+}
+.server-capsule {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(14, 10, 22, 0.72);
+  border: 1px solid rgba(251, 122, 158, 0.28);
+  border-radius: 999px;
+  padding: 3px 8px;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.4), 0 2px 8px rgba(0, 0, 0, 0.25);
+  position: relative;
+  --wails-draggable: no-drag;
+}
+.server-badge {
+  font-size: 11px;
+  font-weight: 700;
   color: #ff9ec6;
+  background: rgba(251, 122, 158, 0.18);
+  padding: 2px 8px;
+  border-radius: 999px;
   white-space: nowrap;
 }
-.brand .logo {
-  font-size: 16px;
-}
-.nav-bar {
+.url-display {
   display: flex;
   align-items: center;
   gap: 6px;
-  flex: 1;
-  max-width: 600px;
-}
-.srv-label {
-  font-size: 11px;
-  color: #bfa8d9;
-  white-space: nowrap;
-}
-.srv-input {
-  flex: 1;
-  background: rgba(0, 0, 0, 0.35);
-  border: 1px solid rgba(201, 168, 245, 0.3);
+  cursor: pointer;
+  padding: 2px 6px;
   border-radius: 6px;
-  padding: 3px 8px;
-  color: #fff;
-  font-size: 12px;
-  outline: none;
-  font-family: Consolas, monospace;
+  transition: background 0.15s ease;
 }
-.srv-input:focus {
-  border-color: #fb7a9e;
-  box-shadow: 0 0 6px rgba(251, 122, 158, 0.4);
-}
-.nav-btn {
+.url-display:hover {
   background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(201, 168, 245, 0.2);
-  color: #f1e9f8;
-  border-radius: 6px;
-  padding: 3px 10px;
+}
+.url-text {
+  font-family: Consolas, "JetBrains Mono", monospace;
   font-size: 12px;
-  cursor: pointer;
-  transition: all 0.15s ease;
+  color: #e2e8f0;
+  white-space: nowrap;
 }
-.nav-btn:hover {
-  background: rgba(255, 255, 255, 0.18);
+.edit-hint {
+  font-size: 11px;
+  color: #94a3b8;
+  opacity: 0.7;
 }
-.nav-btn.primary {
-  background: linear-gradient(135deg, #fb7a9e, #e8537f);
-  border: none;
-  font-weight: 600;
+.url-input {
+  font-family: Consolas, "JetBrains Mono", monospace;
+  font-size: 12px;
   color: #fff;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid #fb7a9e;
+  outline: none;
+  padding: 1px 4px;
+  min-width: 220px;
 }
-.nav-btn.primary:hover {
-  filter: brightness(1.1);
-}
-.actions {
+.capsule-btn {
+  background: transparent;
+  border: none;
+  color: #cbd5e1;
+  font-size: 12px;
+  padding: 3px 6px;
+  border-radius: 6px;
+  cursor: pointer;
   display: flex;
   align-items: center;
-  gap: 6px;
+  justify-content: center;
+  transition: all 0.15s ease;
 }
-.action-btn {
-  background: transparent;
-  border: 1px solid rgba(201, 168, 245, 0.25);
-  color: #d8c7ed;
+.capsule-btn:hover {
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+}
+.dropdown-toggle.active {
+  color: #fb7a9e;
+  transform: rotate(180deg);
+}
+.icon-spin {
+  display: inline-block;
+  transition: transform 0.3s ease;
+}
+.capsule-btn:hover .icon-spin {
+  transform: rotate(90deg);
+}
+
+/* 预设服务器下拉浮层 */
+.preset-dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: 280px;
+  background: #231b34;
+  border: 1px solid rgba(251, 122, 158, 0.35);
+  border-radius: 10px;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.6);
+  padding: 6px;
+  z-index: 2000;
+}
+.dropdown-hd {
+  font-size: 10px;
+  font-weight: 700;
+  color: #a78bfa;
+  padding: 4px 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.dropdown-item {
+  padding: 7px 10px;
   border-radius: 6px;
-  padding: 3px 8px;
-  font-size: 11px;
   cursor: pointer;
   transition: all 0.15s ease;
 }
-.action-btn:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: #fff;
+.dropdown-item:hover {
+  background: rgba(251, 122, 158, 0.15);
 }
-.client-body {
+.dropdown-item.selected {
+  background: rgba(251, 122, 158, 0.22);
+  border-left: 2px solid #fb7a9e;
+}
+.item-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: #f1e9f8;
+}
+.item-url {
+  font-size: 11px;
+  font-family: Consolas, monospace;
+  color: #94a3b8;
+  margin-top: 1px;
+}
+
+/* 右侧无缝窗口控制三键 */
+.titlebar-right {
+  display: flex;
+  align-items: center;
+  height: 100%;
+  --wails-draggable: no-drag;
+}
+.sys-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 42px;
+  background: transparent;
+  border: none;
+  color: #cbd5e1;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.sys-btn:hover {
+  background: rgba(255, 255, 255, 0.09);
+  color: #ffffff;
+}
+.btn-close:hover {
+  background: #f43f5e !important;
+  color: #ffffff !important;
+}
+
+/* 主体容器与霓虹微光加载条 */
+.window-body {
   flex: 1;
   position: relative;
-  background: #181422;
+  background: #171322;
   overflow: hidden;
 }
-.loading-bar {
+.neon-progress {
   position: absolute;
   top: 0;
   left: 0;
   right: 0;
-  height: 3px;
-  background: rgba(0, 0, 0, 0.2);
-  z-index: 10;
+  height: 2px;
+  background: rgba(0, 0, 0, 0.25);
+  z-index: 100;
   overflow: hidden;
 }
-.loading-indicator {
-  width: 40%;
+.neon-glow-bar {
+  width: 35%;
   height: 100%;
-  background: linear-gradient(90deg, #fb7a9e, #a78bfa);
-  animation: loadingAnim 1.2s infinite ease-in-out;
+  background: linear-gradient(90deg, #fb7a9e, #c084fc, #38bdf8);
+  box-shadow: 0 0 8px rgba(251, 122, 158, 0.8);
+  animation: neonRun 1.2s infinite ease-in-out;
 }
-@keyframes loadingAnim {
+@keyframes neonRun {
   0% { transform: translateX(-100%); }
-  100% { transform: translateX(300%); }
+  100% { transform: translateX(350%); }
 }
-.content-frame {
+.embedded-frame {
   width: 100%;
   height: 100%;
   border: none;
