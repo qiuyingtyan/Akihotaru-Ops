@@ -103,7 +103,27 @@ CREATE TABLE IF NOT EXISTS ops_chat_history (
 );
 CREATE INDEX IF NOT EXISTS idx_ops_chat_history_user ON ops_chat_history (username, id);
 ALTER TABLE ops_chat_history ADD COLUMN IF NOT EXISTS conv_id BIGINT NOT NULL DEFAULT 0;
-CREATE INDEX IF NOT EXISTS idx_ops_chat_history_conv ON ops_chat_history (username, conv_id, id);`
+CREATE INDEX IF NOT EXISTS idx_ops_chat_history_conv ON ops_chat_history (username, conv_id, id);
+CREATE TABLE IF NOT EXISTS ops_app_services (
+	id            BIGSERIAL PRIMARY KEY,
+	name          TEXT NOT NULL UNIQUE,
+	display_name  TEXT NOT NULL,
+	group_name    TEXT NOT NULL DEFAULT 'default',
+	level         INT NOT NULL DEFAULT 3,
+	work_dir      TEXT NOT NULL,
+	exec_start    TEXT NOT NULL,
+	exec_stop     TEXT NOT NULL DEFAULT '',
+	after_deps    TEXT NOT NULL DEFAULT '',
+	port          INT NOT NULL DEFAULT 0,
+	log_path      TEXT NOT NULL DEFAULT '',
+	restart_policy TEXT NOT NULL DEFAULT 'always',
+	service_type  TEXT NOT NULL DEFAULT '',
+	auto_start    BOOLEAN NOT NULL DEFAULT true,
+	created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_ops_app_services_level ON ops_app_services (level, id);
+ALTER TABLE ops_app_services ADD COLUMN IF NOT EXISTS service_type TEXT NOT NULL DEFAULT '';`
 	if _, err = db.Exec(schema); err != nil {
 		return err
 	}
